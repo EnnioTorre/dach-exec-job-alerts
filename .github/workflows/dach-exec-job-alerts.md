@@ -53,8 +53,8 @@ Produce one daily issue with top DACH openings for:
 1. Use bash only to run Python scripts.
 2. Deterministic Python fetch + parse + dedupe.
 3. Deterministic Python scoring.
-4. Optional AI only for one short justification per role.
-5. If AI errors (including 429), continue and publish deterministic output.
+4. Avoid extra AI generation steps and keep reasoning minimal.
+5. If partial AI responses are available, continue and publish deterministic output.
 
 Never use `edit`, patch/diff output, `gh issue list`, `report_incomplete`, `missing_tool`, `missing_data`, or `create_report_incomplete_issue`.
 
