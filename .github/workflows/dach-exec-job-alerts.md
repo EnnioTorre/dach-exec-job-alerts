@@ -1,6 +1,6 @@
 ---
 emoji: "📬"
-description: Daily AI-ranked DACH executive job search and email digest
+description: Daily AI-ranked DACH executive job search digest posted as a GitHub Issue
 engine: codex
 on:
   schedule:
@@ -19,75 +19,10 @@ tools:
   web-fetch: {}
   bash: ["*"]
 safe-outputs:
-  jobs:
-    send-email-report:
-      description: Send the ranked job digest by email
-      runs-on: ubuntu-latest
-      output: "Email digest sent"
-      inputs:
-        to:
-          description: Recipient email
-          required: true
-          type: string
-        subject:
-          description: Email subject
-          required: true
-          type: string
-        body:
-          description: Plain text body
-          required: true
-          type: string
-        html_body:
-          description: HTML body
-          required: false
-          type: string
-      env:
-        SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
-        SMTP_PORT: ${{ secrets.SMTP_PORT }}
-        SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
-        SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
-        SMTP_SECURE: ${{ secrets.SMTP_SECURE }}
-      steps:
-        - name: Extract send_email_report payload
-          shell: bash
-          run: |
-            set -euo pipefail
-            item=$(jq -cr '.items[] | select(.type == "send_email_report")' "$GH_AW_AGENT_OUTPUT" | tail -n 1)
-            if [ -z "$item" ]; then
-              echo "Missing send_email_report output from agent"
-              exit 1
-            fi
-            echo "TO=$(jq -r '.to' <<<"$item")" >> "$GITHUB_ENV"
-            echo "SUBJECT<<EOF" >> "$GITHUB_ENV"
-            jq -r '.subject' <<<"$item" >> "$GITHUB_ENV"
-            echo "EOF" >> "$GITHUB_ENV"
-            echo "BODY<<EOF" >> "$GITHUB_ENV"
-            jq -r '.body' <<<"$item" >> "$GITHUB_ENV"
-            echo "EOF" >> "$GITHUB_ENV"
-            echo "HTML_BODY<<EOF" >> "$GITHUB_ENV"
-            jq -r '.html_body // ""' <<<"$item" >> "$GITHUB_ENV"
-            echo "EOF" >> "$GITHUB_ENV"
-        - name: Validate SMTP config
-          shell: bash
-          run: |
-            set -euo pipefail
-            test -n "${SMTP_SERVER:-}"
-            test -n "${SMTP_PORT:-}"
-            test -n "${SMTP_USERNAME:-}"
-            test -n "${SMTP_PASSWORD:-}"
-        - name: Send email
-          uses: dawidd6/action-send-mail@v3
-          with:
-            server_address: ${{ env.SMTP_SERVER }}
-            server_port: ${{ env.SMTP_PORT }}
-            username: ${{ env.SMTP_USERNAME }}
-            password: ${{ env.SMTP_PASSWORD }}
-            secure: ${{ env.SMTP_SECURE || 'true' }}
-            from: GitHub Agentic Workflow <${{ env.SMTP_USERNAME }}>
-            to: ${{ env.TO }}
-            subject: ${{ env.SUBJECT }}
-            body: ${{ env.BODY }}
-            html_body: ${{ env.HTML_BODY }}
+  create-issue:
+    max: 1
+    labels: [job-digest]
+    title-prefix: "[DACH Jobs] "
 ---
 
 # DACH Executive Job Alert Digest
@@ -148,22 +83,45 @@ If fewer than 10 strong matches exist, send the best available and explicitly sa
 
 ## Delivery
 
-Determine recipient email using this fallback order:
+Before creating an issue, search for an existing open issue whose title starts with `[DACH Jobs]` and contains today's UTC date (format: `YYYY-MM-DD`). If one already exists, call `noop` — do not create a duplicate.
 
-1. Repository variable `JOB_ALERT_RECIPIENT_EMAIL`
-2. Secret `JOB_ALERT_RECIPIENT_EMAIL`
-3. Public profile email of `${{ github.repository_owner }}` from GitHub API (only if non-empty)
+When no issue exists for today, use `create-issue` with:
 
-If no recipient email is available, use `noop` with a short explanation.
+- **title**: `[DACH Jobs] Top 10 Exec Roles — YYYY-MM-DD` (today's UTC date)
+- **body**: a GitHub-flavored markdown report containing the ranked table and per-role details
 
-When recipient is available, emit `send_email_report` exactly once with:
+Format the issue body as:
 
-- `to`: resolved recipient
-- `subject`: concise daily digest subject including current UTC date
-- `body`: plain text digest with top 10
-- `html_body`: optional HTML table version
+```
+## DACH Executive Job Digest — YYYY-MM-DD
+
+> Roles searched: Engineering Manager · CTO · Head of Engineering · Director of Engineering · Head of Platform · Head of Cloud
+> Region: DACH (Germany, Austria, Switzerland)
+
+### Top 10 Ranked Openings
+
+| Rank | Role | Company | Location | Score | Salary | Language |
+|------|------|---------|----------|-------|--------|----------|
+| 1 | ... | ... | ... | 4.8 | ... | EN |
+...
+
+---
+
+### Details
+
+#### 1. [Role Title](application_url) — Company
+- **Location**: city, country · location_score/5
+- **Company size**: ... · company_size_score/5
+- **Salary**: ... · salary_score/5
+- **Language**: ... · language_score/5
+- **Final score**: X.X / 5
+- **Source**: [link](source_url) · Published: YYYY-MM-DD
+- **Why**: short justification
+```
+
+If fewer than 10 credible listings are found, include all found and note the count at the top.
 
 ## Safe Outputs
 
-- Use `send_email_report` for email delivery.
-- Use `noop` when no recipient can be resolved or no credible job listings are found.
+- Use `create-issue` for the daily digest.
+- Use `noop` when a digest issue for today already exists, or when no credible job listings are found (explain briefly).
