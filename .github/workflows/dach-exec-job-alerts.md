@@ -56,6 +56,13 @@ Build a Python extraction script that writes normalized JSON records, then rank 
 Do not use the `edit` tool and do not emit patch/diff content.
 If you need a script, create it from bash using heredoc (for example `cat > /tmp/gh-aw/agent/fetch_jobs.py <<'PY' ... PY`) and run it with `python3`.
 
+Execution model (required):
+
+- Deterministic Python fetch + parse + dedupe.
+- Deterministic Python scoring formula.
+- AI is optional and only for one short justification sentence per selected role.
+- If AI call fails or returns 429, continue and publish deterministic results without AI justifications.
+
 For every HTTP request, use a realistic browser user-agent and retries (for example `curl -L --retry 3 --retry-delay 2 --compressed -A "Mozilla/5.0 ..."`).
 
 Fetch listings directly from these job board search URLs (fetch each one and extract relevant postings):
@@ -78,6 +85,8 @@ Parsing implementation requirements:
 - Skip records without `title` or `company`.
 - If a source returns anti-bot/captcha content, mark it as blocked and continue.
 - Keep at most 80 raw records before ranking to control token use.
+- Write deduplicated records to `/tmp/gh-aw/jobs_deduped.json`.
+- Write ranked records to `/tmp/gh-aw/jobs_ranked.json`.
 
 If a source is blocked, rate-limited, or returns unusable HTML, skip it and continue with the remaining sources.
 
@@ -111,6 +120,8 @@ Calculate `final_score` in range 1 to 5 using weighted average:
 
 Round to one decimal and clamp to [1.0, 5.0].
 
+Scoring must be computed in Python deterministically. Do not ask AI to compute numeric scores.
+
 ## Output Requirements
 
 Return the top 10 roles sorted by `final_score` descending.
@@ -128,9 +139,15 @@ Each role entry must include:
 - salary_score
 - language_score
 - final_score
-- short justification
+- short justification (AI-generated only if available; otherwise deterministic fallback text)
 
 If fewer than 10 strong matches exist, send the best available and explicitly say how many were found.
+
+429 fallback rule:
+
+- If any AI request fails with 429/usage limit, do not fail the run.
+- Set justification to deterministic fallback text such as `"Deterministic ranking based on location, company size, salary signal, and language signal."`.
+- Still emit `create_issue` with available ranked results.
 
 ## Delivery
 
