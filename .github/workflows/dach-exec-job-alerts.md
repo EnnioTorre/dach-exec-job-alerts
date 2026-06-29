@@ -3,7 +3,7 @@ emoji: "📬"
 description: Daily AI-ranked DACH executive job search digest posted as a GitHub Issue
 engine:
   id: copilot
-  model: gpt-4o
+  model: gpt-4o-mini
 on:
   schedule:
     - cron: "15 6 * * *"
