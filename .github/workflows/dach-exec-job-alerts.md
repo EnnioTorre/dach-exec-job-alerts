@@ -1,7 +1,6 @@
 ---
 emoji: "📬"
 description: Daily AI-ranked DACH executive job search digest posted as a GitHub Issue
-engine: codex
 on:
   schedule:
     - cron: "15 6 * * *"
@@ -15,9 +14,24 @@ tools:
   github:
     mode: gh-proxy
     toolsets: [default]
-  web-search: {}
   web-fetch: {}
   bash: ["*"]
+network:
+  allowed:
+    - defaults
+    - www.linkedin.com
+    - www.stepstone.de
+    - www.stepstone.at
+    - www.xing.com
+    - www.indeed.com
+    - at.indeed.com
+    - de.indeed.com
+    - www.glassdoor.com
+    - www.glassdoor.de
+    - jobs.lever.co
+    - boards.greenhouse.io
+    - apply.workable.com
+    - careers.smartrecruiters.com
 safe-outputs:
   create-issue:
     max: 1
@@ -29,7 +43,7 @@ safe-outputs:
 
 ## Task
 
-Run once per day and search the public internet for currently open roles in the DACH region for:
+Run once per day and gather currently open roles in the DACH region for:
 
 - Engineering Manager
 - CTO
@@ -40,7 +54,18 @@ Run once per day and search the public internet for currently open roles in the 
 
 Only include roles that are open at run time and have a valid source URL.
 
-Use web search and web fetch to gather listings from company career pages and reputable job boards.
+Fetch listings directly from these job board search URLs (fetch each one and extract relevant postings):
+
+1. `https://www.stepstone.de/jobs/head-of-engineering/in-oesterreich` 
+2. `https://www.stepstone.de/jobs/head-of-engineering/in-deutschland`
+3. `https://www.stepstone.at/jobs/cto`
+4. `https://at.indeed.com/jobs?q=head+of+engineering+OR+CTO+OR+engineering+manager+OR+director+of+engineering+OR+head+of+platform&l=Austria+OR+Germany+OR+Switzerland`
+5. `https://de.indeed.com/jobs?q=head+of+engineering+OR+CTO+OR+engineering+manager&l=Deutschland`
+6. `https://www.xing.com/jobs/search?keywords=head+of+engineering&location=Austria`
+7. `https://www.xing.com/jobs/search?keywords=CTO+OR+engineering+manager&location=Germany`
+8. `https://www.glassdoor.de/Job/osterreich-head-of-engineering-jobs-SRCH_IL.0,10_IN15_KO11,30.htm`
+
+Fetch each URL, parse the HTML for job listings, and deduplicate by company+title.
 
 ## Ranking Method
 
