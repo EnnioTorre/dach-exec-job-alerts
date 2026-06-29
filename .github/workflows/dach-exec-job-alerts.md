@@ -15,11 +15,7 @@ permissions:
   pull-requests: read
   copilot-requests: write
 tools:
-  github:
-    mode: gh-proxy
-    toolsets: [default]
   web-fetch: {}
-  bash: ["*"]
 network:
   allowed:
     - defaults
@@ -58,6 +54,8 @@ Run once per day and gather currently open roles in the DACH region for:
 
 Only include roles that are open at run time and have a valid source URL.
 
+Use only the `web-fetch` tool for data collection. Do not use shell commands such as `curl`, `wget`, or `gh`.
+
 Fetch listings directly from these job board search URLs (fetch each one and extract relevant postings):
 
 1. `https://www.stepstone.de/jobs/head-of-engineering/in-oesterreich` 
@@ -70,6 +68,8 @@ Fetch listings directly from these job board search URLs (fetch each one and ext
 8. `https://www.glassdoor.de/Job/osterreich-head-of-engineering-jobs-SRCH_IL.0,10_IN15_KO11,30.htm`
 
 Fetch each URL, parse the HTML for job listings, and deduplicate by company+title.
+
+If a source is blocked, rate-limited, or returns unusable HTML, skip it and continue with the remaining sources. Do not fail the run unless zero credible listings are found across all sources.
 
 ## Ranking Method
 
@@ -112,9 +112,7 @@ If fewer than 10 strong matches exist, send the best available and explicitly sa
 
 ## Delivery
 
-Before creating an issue, search for an existing open issue whose title starts with `[DACH Jobs]` and contains today's UTC date (format: `YYYY-MM-DD`). If one already exists, call `noop` — do not create a duplicate.
-
-When no issue exists for today, use `create-issue` with:
+Create exactly one digest issue per run using `create-issue` with:
 
 - **title**: `[DACH Jobs] Top 10 Exec Roles — YYYY-MM-DD` (today's UTC date)
 - **body**: a GitHub-flavored markdown report containing the ranked table and per-role details
@@ -153,4 +151,4 @@ If fewer than 10 credible listings are found, include all found and note the cou
 ## Safe Outputs
 
 - Use `create-issue` for the daily digest.
-- Use `noop` when a digest issue for today already exists, or when no credible job listings are found (explain briefly).
+- Use `noop` only when no credible job listings are found after checking all sources (explain briefly).
