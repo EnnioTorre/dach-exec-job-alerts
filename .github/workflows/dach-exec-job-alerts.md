@@ -4,6 +4,8 @@ description: Daily AI-ranked DACH executive job search digest posted as a GitHub
 engine:
   id: copilot
   model: gpt-4o-mini
+max-turns: 1
+max-ai-credits: 120
 on:
   schedule:
     - cron: "15 6 * * *"
@@ -35,183 +37,69 @@ safe-outputs:
 
 # DACH Executive Job Alert Digest
 
-## Task
+## Objective
 
-Run once per day and gather currently open roles in the DACH region for:
+Produce one daily issue with top DACH openings for:
 
 - Engineering Manager
 - CTO
 - Head of Engineering
 - Director of Engineering
-- Head of Platform
-- Head of Cloud
+- Head of Platform or Cloud
 
-Only include roles that are open at run time and have a valid source URL.
+## Required Pipeline
 
-Use `bash` only as an orchestrator. Use `python3` for URL fetching and parsing.
+1. Use bash only to run Python scripts.
+2. Deterministic Python fetch + parse + dedupe.
+3. Deterministic Python scoring.
+4. Optional AI only for one short justification per role.
+5. If AI errors (including 429), continue and publish deterministic output.
 
-Do not parse listings with shell pipelines (`grep|sed|awk`) except for trivial checks.
-Build a Python extraction script that writes normalized JSON records, then rank from that JSON.
+Never use `edit`, patch/diff output, `gh issue list`, `report_incomplete`, `missing_tool`, `missing_data`, or `create_report_incomplete_issue`.
 
-Do not use the `edit` tool and do not emit patch/diff content.
-If you need a script, create it from bash using heredoc (for example `cat > /tmp/gh-aw/agent/fetch_jobs.py <<'PY' ... PY`) and run it with `python3`.
+## Sources
 
-Execution model (required):
+Use these URLs and continue on per-source failure:
 
-- Deterministic Python fetch + parse + dedupe.
-- Deterministic Python scoring formula.
-- AI is optional and only for one short justification sentence per selected role.
-- If AI call fails or returns 429, continue and publish deterministic results without AI justifications.
+1. https://www.stepstone.de/jobs/head-of-engineering/in-oesterreich
+2. https://www.stepstone.de/jobs/head-of-engineering/in-deutschland
+3. https://www.stepstone.at/jobs/cto
+4. https://at.indeed.com/jobs?q=head+of+engineering+OR+CTO+OR+engineering+manager+OR+director+of+engineering+OR+head+of+platform&l=Austria+OR+Germany+OR+Switzerland
+5. https://de.indeed.com/jobs?q=head+of+engineering+OR+CTO+OR+engineering+manager&l=Deutschland
 
-For every HTTP request, use a realistic browser user-agent and retries (for example `curl -L --retry 3 --retry-delay 2 --compressed -A "Mozilla/5.0 ..."`).
+For HTTP fetch use retries and browser UA.
 
-Fetch listings directly from these job board search URLs (fetch each one and extract relevant postings):
+## Data Files
 
-1. `https://www.stepstone.de/jobs/head-of-engineering/in-oesterreich` 
-2. `https://www.stepstone.de/jobs/head-of-engineering/in-deutschland`
-3. `https://www.stepstone.at/jobs/cto`
-4. `https://at.indeed.com/jobs?q=head+of+engineering+OR+CTO+OR+engineering+manager+OR+director+of+engineering+OR+head+of+platform&l=Austria+OR+Germany+OR+Switzerland`
-5. `https://de.indeed.com/jobs?q=head+of+engineering+OR+CTO+OR+engineering+manager&l=Deutschland`
-6. `https://www.xing.com/jobs/search?keywords=head+of+engineering&location=Austria`
-7. `https://www.xing.com/jobs/search?keywords=CTO+OR+engineering+manager&location=Germany`
-8. `https://www.glassdoor.de/Job/osterreich-head-of-engineering-jobs-SRCH_IL.0,10_IN15_KO11,30.htm`
+- `/tmp/gh-aw/jobs_raw.json`
+- `/tmp/gh-aw/jobs_deduped.json`
+- `/tmp/gh-aw/jobs_ranked.json`
 
-Fetch each URL, parse the HTML for job listings, and deduplicate by company+title.
+Normalized fields:
+`title, company, location, source_url, application_url, publish_date, salary_text, language_hint`
 
-Parsing implementation requirements:
+Drop records without `title` or `company`.
+Cap raw records to 40 to limit token usage.
 
-- Create `/tmp/gh-aw/jobs_raw.json` with a list of normalized objects.
-- Normalize fields: `title`, `company`, `location`, `source_url`, `application_url`, `publish_date`, `salary_text`, `language_hint`.
-- Skip records without `title` or `company`.
-- If a source returns anti-bot/captcha content, mark it as blocked and continue.
-- Keep at most 80 raw records before ranking to control token use.
-- Write deduplicated records to `/tmp/gh-aw/jobs_deduped.json`.
-- Write ranked records to `/tmp/gh-aw/jobs_ranked.json`.
+## Scoring
 
-If a source is blocked, rate-limited, or returns unusable HTML, skip it and continue with the remaining sources.
+Deterministic Python scores (1-5):
 
-Reliability rules:
-
-- Use `set -euo pipefail` in bash snippets.
-- Do not use `gh issue list` or any `gh` search query.
-- Do not try to detect existing digest issues. Always produce the current run digest.
-- If fewer than 3 sources are reachable, still produce output from available sources instead of reporting incomplete.
-- If zero listings are found, still create a digest issue that contains:
-  - source health table (source URL, status, reason)
-  - what was tried
-  - suggested next source adjustments
-- If Python parsing fails for one source, continue with other sources.
-
-## Ranking Method
-
-For each posting, calculate four criterion scores from 1 to 5:
-
-- `location_score`: 5 if in Vienna. Decrease with distance from Vienna. Score 1 for locations over 1000 km from Vienna.
-- `company_size_score`: larger company gets higher score.
-- `salary_score`: higher total compensation gets higher score. If salary is not published, estimate only when there is credible evidence and mark as estimated.
-- `language_score`: English-friendly roles score higher. Roles requiring German score lower.
-
-Calculate `final_score` in range 1 to 5 using weighted average:
-
-- `0.35 * location_score`
-- `0.20 * company_size_score`
-- `0.30 * salary_score`
-- `0.15 * language_score`
-
-Round to one decimal and clamp to [1.0, 5.0].
-
-Scoring must be computed in Python deterministically. Do not ask AI to compute numeric scores.
-
-## Output Requirements
-
-Return the top 10 roles sorted by `final_score` descending.
-
-Each role entry must include:
-
-- title
-- company
-- location
-- source_url
-- application_url
-- publish_date if known
-- location_score
+- location_score (Vienna=5; >1000km=1)
 - company_size_score
 - salary_score
-- language_score
-- final_score
-- short justification (AI-generated only if available; otherwise deterministic fallback text)
+- language_score (English-friendly high, German-required lower)
 
-If fewer than 10 strong matches exist, send the best available and explicitly say how many were found.
+`final_score = clamp(1,5, round(0.35*location + 0.20*company + 0.30*salary + 0.15*language, 1))`
 
-429 fallback rule:
+## Output Contract
 
-- If any AI request fails with 429/usage limit, do not fail the run.
-- Set justification to deterministic fallback text such as `"Deterministic ranking based on location, company size, salary signal, and language signal."`.
-- Still emit `create_issue` with available ranked results.
+Emit exactly one safe output item every run:
 
-## Delivery
+- preferred: `create_issue`
+- fallback: `noop` only for unrecoverable internal failures
 
-Create exactly one digest issue per run using `create-issue` with:
+If listings exist: create issue title `Top 10 Exec Roles — YYYY-MM-DD`.
+If zero listings: create issue title `No Listings Retrieved — YYYY-MM-DD` and include source diagnostics.
 
-- **title**: `[DACH Jobs] Top 10 Exec Roles — YYYY-MM-DD` (today's UTC date)
-- **body**: a GitHub-flavored markdown report containing the ranked table and per-role details
-
-Format the issue body as:
-
-```
-## DACH Executive Job Digest — YYYY-MM-DD
-
-> Roles searched: Engineering Manager · CTO · Head of Engineering · Director of Engineering · Head of Platform · Head of Cloud
-> Region: DACH (Germany, Austria, Switzerland)
-
-### Top 10 Ranked Openings
-
-| Rank | Role | Company | Location | Score | Salary | Language |
-|------|------|---------|----------|-------|--------|----------|
-| 1 | ... | ... | ... | 4.8 | ... | EN |
-...
-
----
-
-### Details
-
-#### 1. [Role Title](application_url) — Company
-- **Location**: city, country · location_score/5
-- **Company size**: ... · company_size_score/5
-- **Salary**: ... · salary_score/5
-- **Language**: ... · language_score/5
-- **Final score**: X.X / 5
-- **Source**: [link](source_url) · Published: YYYY-MM-DD
-- **Why**: short justification
-```
-
-If fewer than 10 credible listings are found, include all found and note the count at the top.
-
-If no listings are found, create the issue with title:
-
-- `[DACH Jobs] No Listings Retrieved — YYYY-MM-DD`
-
-and include diagnostics as described above.
-
-Mandatory output rule:
-
-- You must emit exactly one safe output item on every run.
-- Allowed output types: `create_issue` or `noop`.
-- Never finish with empty output.
-- If uncertain, default to `create_issue` with a diagnostic summary.
-- Never emit: `create_report_incomplete_issue`, `report_incomplete`, `missing_tool`, or `missing_data`.
-
-Output format examples (must match exactly):
-
-```json
-{"type":"create_issue","title":"Top 10 Exec Roles — 2026-06-29","body":"## DACH Executive Job Digest ..."}
-```
-
-```json
-{"type":"noop","message":"Unrecoverable internal tool failure while parsing all sources."}
-```
-
-## Safe Outputs
-
-- Use `create-issue` for the daily digest.
-- Use `noop` only for unrecoverable internal tool failure (not for source-blocking cases).
+`create_issue` body must be markdown and include ranked table + brief details.
