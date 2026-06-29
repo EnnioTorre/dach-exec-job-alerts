@@ -16,6 +16,7 @@ permissions:
   copilot-requests: write
 tools:
   bash: ["*"]
+  edit: false
 network:
   allowed:
     - defaults
@@ -51,6 +52,9 @@ Use `bash` only as an orchestrator. Use `python3` for URL fetching and parsing.
 
 Do not parse listings with shell pipelines (`grep|sed|awk`) except for trivial checks.
 Build a Python extraction script that writes normalized JSON records, then rank from that JSON.
+
+Do not use the `edit` tool and do not emit patch/diff content.
+If you need a script, create it from bash using heredoc (for example `cat > /tmp/gh-aw/agent/fetch_jobs.py <<'PY' ... PY`) and run it with `python3`.
 
 For every HTTP request, use a realistic browser user-agent and retries (for example `curl -L --retry 3 --retry-delay 2 --compressed -A "Mozilla/5.0 ..."`).
 
