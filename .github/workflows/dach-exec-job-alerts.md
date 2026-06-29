@@ -26,6 +26,7 @@ network:
     - "*.at"
     - "*.ch"
     - "*.com"
+    - "*.google.com"
 safe-outputs:
   create-issue:
     max: 1
@@ -59,15 +60,25 @@ Never use `edit`, patch/diff output, `gh issue list`, `report_incomplete`, `miss
 
 ## Sources
 
-Use these URLs and continue on per-source failure:
+Use this small curated source set and continue on per-source failure:
 
-1. https://www.stepstone.de/jobs/head-of-engineering/in-oesterreich
-2. https://www.stepstone.de/jobs/head-of-engineering/in-deutschland
-3. https://www.stepstone.at/jobs/cto
-4. https://at.indeed.com/jobs?q=head+of+engineering+OR+CTO+OR+engineering+manager+OR+director+of+engineering+OR+head+of+platform&l=Austria+OR+Germany+OR+Switzerland
-5. https://de.indeed.com/jobs?q=head+of+engineering+OR+CTO+OR+engineering+manager&l=Deutschland
+1. https://www.stepstone.at/jobs/cto
+2. https://www.stepstone.at/jobs/head-of-engineering
+3. https://www.linkedin.com/jobs/search/?keywords=Head%20of%20Engineering%20OR%20CTO%20OR%20Engineering%20Manager&location=Austria
+4. https://www.jobs.ch/en/vacancies/?term=head%20of%20engineering
+5. https://at.indeed.com/jobs?q=head+of+engineering+OR+CTO+OR+engineering+manager+OR+director+of+engineering+OR+head+of+platform
+6. https://www.google.com/search?q=site%3Acareers%20%22Head%20of%20Engineering%22%20Austria
+7. https://www.google.com/search?q=site%3Acareers%20CTO%20Austria
+8. https://www.google.com/search?q=site%3Acareers%20%22Director%20of%20Engineering%22%20Germany%20Switzerland
 
 For HTTP fetch use retries and browser UA.
+
+Market coverage rules:
+
+- Prioritize Austria first.
+- Target composition for top results when data is available: Austria >= 50%, Germany >= 30%, Switzerland >= 20%.
+- If one country has insufficient credible results, backfill from the other DACH countries.
+- Keep source diversity: no more than 40% of final ranked items from any single source.
 
 ## Data Files
 
