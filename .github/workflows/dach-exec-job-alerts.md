@@ -19,24 +19,17 @@ tools:
 network:
   allowed:
     - defaults
-    - www.linkedin.com
-    - www.stepstone.de
-    - www.stepstone.at
-    - www.xing.com
-    - www.indeed.com
-    - at.indeed.com
-    - de.indeed.com
-    - www.glassdoor.com
-    - www.glassdoor.de
-    - jobs.lever.co
-    - boards.greenhouse.io
-    - apply.workable.com
-    - careers.smartrecruiters.com
+    - "*.de"
+    - "*.at"
+    - "*.ch"
+    - "*.com"
 safe-outputs:
   create-issue:
     max: 1
     labels: [job-digest]
     title-prefix: "[DACH Jobs] "
+  noop:
+    report-as-issue: false
 ---
 
 # DACH Executive Job Alert Digest
@@ -56,6 +49,8 @@ Only include roles that are open at run time and have a valid source URL.
 
 Use only shell commands in `bash` for data collection. Prefer `python3` scripts or `curl` for fetching pages and parsing results.
 
+For every HTTP request, use a realistic browser user-agent and retries (for example `curl -L --retry 3 --retry-delay 2 --compressed -A "Mozilla/5.0 ..."`).
+
 Fetch listings directly from these job board search URLs (fetch each one and extract relevant postings):
 
 1. `https://www.stepstone.de/jobs/head-of-engineering/in-oesterreich` 
@@ -69,7 +64,7 @@ Fetch listings directly from these job board search URLs (fetch each one and ext
 
 Fetch each URL, parse the HTML for job listings, and deduplicate by company+title.
 
-If a source is blocked, rate-limited, or returns unusable HTML, skip it and continue with the remaining sources. Do not fail the run unless zero credible listings are found across all sources.
+If a source is blocked, rate-limited, or returns unusable HTML, skip it and continue with the remaining sources.
 
 Reliability rules:
 
@@ -77,6 +72,10 @@ Reliability rules:
 - Do not use `gh issue list` or any `gh` search query.
 - Do not try to detect existing digest issues. Always produce the current run digest.
 - If fewer than 3 sources are reachable, still produce output from available sources instead of reporting incomplete.
+- If zero listings are found, still create a digest issue that contains:
+  - source health table (source URL, status, reason)
+  - what was tried
+  - suggested next source adjustments
 
 ## Ranking Method
 
@@ -155,7 +154,13 @@ Format the issue body as:
 
 If fewer than 10 credible listings are found, include all found and note the count at the top.
 
+If no listings are found, create the issue with title:
+
+- `[DACH Jobs] No Listings Retrieved — YYYY-MM-DD`
+
+and include diagnostics as described above.
+
 ## Safe Outputs
 
 - Use `create-issue` for the daily digest.
-- Use `noop` only when no credible job listings are found after checking all sources (explain briefly).
+- Use `noop` only for unrecoverable internal tool failure (not for source-blocking cases).
