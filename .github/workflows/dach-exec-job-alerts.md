@@ -47,7 +47,10 @@ Run once per day and gather currently open roles in the DACH region for:
 
 Only include roles that are open at run time and have a valid source URL.
 
-Use only shell commands in `bash` for data collection. Prefer `python3` scripts or `curl` for fetching pages and parsing results.
+Use `bash` only as an orchestrator. Use `python3` for URL fetching and parsing.
+
+Do not parse listings with shell pipelines (`grep|sed|awk`) except for trivial checks.
+Build a Python extraction script that writes normalized JSON records, then rank from that JSON.
 
 For every HTTP request, use a realistic browser user-agent and retries (for example `curl -L --retry 3 --retry-delay 2 --compressed -A "Mozilla/5.0 ..."`).
 
@@ -64,6 +67,14 @@ Fetch listings directly from these job board search URLs (fetch each one and ext
 
 Fetch each URL, parse the HTML for job listings, and deduplicate by company+title.
 
+Parsing implementation requirements:
+
+- Create `/tmp/gh-aw/jobs_raw.json` with a list of normalized objects.
+- Normalize fields: `title`, `company`, `location`, `source_url`, `application_url`, `publish_date`, `salary_text`, `language_hint`.
+- Skip records without `title` or `company`.
+- If a source returns anti-bot/captcha content, mark it as blocked and continue.
+- Keep at most 80 raw records before ranking to control token use.
+
 If a source is blocked, rate-limited, or returns unusable HTML, skip it and continue with the remaining sources.
 
 Reliability rules:
@@ -76,6 +87,7 @@ Reliability rules:
   - source health table (source URL, status, reason)
   - what was tried
   - suggested next source adjustments
+- If Python parsing fails for one source, continue with other sources.
 
 ## Ranking Method
 
