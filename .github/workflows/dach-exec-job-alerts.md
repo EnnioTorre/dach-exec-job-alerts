@@ -15,7 +15,7 @@ permissions:
   pull-requests: read
   copilot-requests: write
 tools:
-  web-fetch: {}
+  bash: ["*"]
 network:
   allowed:
     - defaults
@@ -54,7 +54,7 @@ Run once per day and gather currently open roles in the DACH region for:
 
 Only include roles that are open at run time and have a valid source URL.
 
-Use only the `web-fetch` tool for data collection. Do not use shell commands such as `curl`, `wget`, or `gh`.
+Use only shell commands in `bash` for data collection. Prefer `python3` scripts or `curl` for fetching pages and parsing results.
 
 Fetch listings directly from these job board search URLs (fetch each one and extract relevant postings):
 
@@ -70,6 +70,13 @@ Fetch listings directly from these job board search URLs (fetch each one and ext
 Fetch each URL, parse the HTML for job listings, and deduplicate by company+title.
 
 If a source is blocked, rate-limited, or returns unusable HTML, skip it and continue with the remaining sources. Do not fail the run unless zero credible listings are found across all sources.
+
+Reliability rules:
+
+- Use `set -euo pipefail` in bash snippets.
+- Do not use `gh issue list` or any `gh` search query.
+- Do not try to detect existing digest issues. Always produce the current run digest.
+- If fewer than 3 sources are reachable, still produce output from available sources instead of reporting incomplete.
 
 ## Ranking Method
 
