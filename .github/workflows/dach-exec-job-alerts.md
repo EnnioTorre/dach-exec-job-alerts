@@ -178,6 +178,17 @@ Mandatory output rule:
 - Allowed output types: `create_issue` or `noop`.
 - Never finish with empty output.
 - If uncertain, default to `create_issue` with a diagnostic summary.
+- Never emit: `create_report_incomplete_issue`, `report_incomplete`, `missing_tool`, or `missing_data`.
+
+Output format examples (must match exactly):
+
+```json
+{"type":"create_issue","title":"Top 10 Exec Roles — 2026-06-29","body":"## DACH Executive Job Digest ..."}
+```
+
+```json
+{"type":"noop","message":"Unrecoverable internal tool failure while parsing all sources."}
+```
 
 ## Safe Outputs
 
