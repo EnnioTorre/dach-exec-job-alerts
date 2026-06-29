@@ -160,6 +160,13 @@ If no listings are found, create the issue with title:
 
 and include diagnostics as described above.
 
+Mandatory output rule:
+
+- You must emit exactly one safe output item on every run.
+- Allowed output types: `create_issue` or `noop`.
+- Never finish with empty output.
+- If uncertain, default to `create_issue` with a diagnostic summary.
+
 ## Safe Outputs
 
 - Use `create-issue` for the daily digest.
