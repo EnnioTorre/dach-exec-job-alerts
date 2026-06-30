@@ -23,7 +23,7 @@ import time
 import base64
 import xml.etree.ElementTree as ET
 from datetime import date
-from urllib.parse import urlencode, urlparse, parse_qs, unquote
+from urllib.parse import urlencode, urlparse, parse_qs, parse_qsl, urlunparse, unquote
 
 import requests
 from bs4 import BeautifulSoup
@@ -171,9 +171,12 @@ SOURCE_URL_FALLBACKS: dict[str, list[str]] = {
     ],
     "google_linkedin_at": [
         "https://www.bing.com/search?" + urlencode({"q": 'site:linkedin.com/jobs "Head of Engineering" Austria', "count": "20"}),
+        "https://www.bing.com/search?" + urlencode({"q": 'site:linkedin.com/jobs "Engineering Manager" Austria', "count": "20"}),
     ],
     "google_linkedin_de": [
         "https://www.bing.com/search?" + urlencode({"q": 'site:linkedin.com/jobs "Director of Engineering" Germany', "count": "20"}),
+        "https://www.bing.com/search?" + urlencode({"q": 'site:linkedin.com/jobs "VP Engineering" Germany', "count": "20"}),
+        "https://www.bing.com/search?" + urlencode({"q": 'site:linkedin.com/jobs "Engineering Manager" Germany', "count": "20"}),
     ],
     "ddg_linkedin_dach": [
         "https://www.bing.com/search?" + urlencode({"q": 'site:linkedin.com/jobs "Engineering Manager" DACH', "count": "20"}),
@@ -197,7 +200,8 @@ _USER_AGENTS = [
 _BASE_HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "de-AT,de;q=0.9,en;q=0.8",
-    "Accept-Encoding": "gzip, deflate, br",
+    # Avoid requesting Brotli here; some environments return raw compressed bytes.
+    "Accept-Encoding": "gzip, deflate",
     "Connection": "keep-alive",
     "DNT": "1",
 }
@@ -279,6 +283,22 @@ def fetch(url: str, retries: int = 3) -> str | None:
             print(f"  Attempt {attempt + 1} failed: {exc}")
             time.sleep(3)
     return None
+
+
+def _to_bing_rss_url(url: str) -> str:
+    """Return Bing search URL with RSS format enabled."""
+    parsed = urlparse(url)
+    if "bing.com" not in parsed.netloc.lower() or not parsed.path.startswith("/search"):
+        return url
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    query["format"] = "rss"
+    new_query = urlencode(query)
+    return urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, new_query, parsed.fragment))
+
+
+def _looks_like_xml(text: str) -> bool:
+    t = (text or "").lstrip().lower()
+    return t.startswith("<?xml") or t.startswith("<rss") or t.startswith("<feed")
 
 
 # ---------------------------------------------------------------------------
@@ -372,7 +392,9 @@ def parse_rss(xml_text: str, source_name: str) -> list[dict]:
     items = root.findall(".//item") or root.findall(".//atom:entry", ns)
     for item in items:
         def _t(tag: str) -> str:
-            el = item.find(tag) or item.find(f"atom:{tag}", ns)
+            el = item.find(tag)
+            if el is None:
+                el = item.find(f"atom:{tag}", ns)
             return (el.text or "").strip() if el is not None else ""
 
         title = _t("title")
@@ -966,6 +988,7 @@ def main() -> None:
     failed_fetch_sources: list[str] = []
     fail_on_fetch_error = os.getenv("SCRAPER_FAIL_ON_FETCH_ERROR", "true").lower() in {"1", "true", "yes"}
     min_per_source = int(os.getenv("SCRAPER_MIN_PER_SOURCE", "2"))
+    min_real_per_source = int(os.getenv("SCRAPER_MIN_REAL_PER_SOURCE", "3"))
     enable_backfill = os.getenv("SCRAPER_SOURCE_BACKFILL", "true").lower() in {"1", "true", "yes"}
     ar_now_cache: list[dict] | None = None
 
@@ -975,11 +998,21 @@ def main() -> None:
         src_type = src.get("type", "html")
         print(f"\nFetching {name} [{src_type}] ...")
 
-        content = fetch(url)
+        content = None
+
+        # Bing proxy pages are more reliable in RSS mode than HTML mode.
+        if src_type in {"search_proxy", "google_proxy"} and "bing.com/search" in url:
+            content = fetch(_to_bing_rss_url(url), retries=2)
+
+        if not content:
+            content = fetch(url)
         if not content and name in SOURCE_URL_FALLBACKS:
             for alt in SOURCE_URL_FALLBACKS[name]:
                 print(f"  Retry via alternate URL for {name}")
-                content = fetch(alt, retries=2)
+                if "bing.com/search" in alt:
+                    content = fetch(_to_bing_rss_url(alt), retries=2)
+                if not content:
+                    content = fetch(alt, retries=2)
                 if content:
                     url = alt
                     break
@@ -996,8 +1029,12 @@ def main() -> None:
             jobs = parse_json_jobs(content, name)
             print(f"  JSON API: {len(jobs)} jobs")
         elif src_type in {"google_proxy", "search_proxy"}:
-            jobs = parse_google_jobs(content, name)
-            print(f"  Google proxy: {len(jobs)} jobs")
+            if _looks_like_xml(content):
+                jobs = parse_rss(content, name)
+                print(f"  Proxy RSS: {len(jobs)} jobs")
+            else:
+                jobs = parse_google_jobs(content, name)
+                print(f"  Google proxy: {len(jobs)} jobs")
         else:
             # html: try JSON-LD first, fall back to site-specific HTML parser
             jobs = [normalize_jsonld(j, name) for j in extract_jsonld_jobs(content)]
@@ -1014,6 +1051,46 @@ def main() -> None:
 
         # Drop records without a title
         jobs = [j for j in jobs if j.get("title")]
+
+        # Some proxy pages return successful responses but no extractable cards.
+        # In that case, try alternate source URLs before falling back further.
+        if len(jobs) < min_real_per_source and name in SOURCE_URL_FALLBACKS:
+            seen = {
+                (j.get("application_url") or j.get("source_url") or j.get("title") or "").strip().lower()
+                for j in jobs
+            }
+            for alt in SOURCE_URL_FALLBACKS[name]:
+                print(f"  Retry parsing via alternate URL for {name}")
+                alt_content = None
+                if "bing.com/search" in alt:
+                    alt_content = fetch(_to_bing_rss_url(alt), retries=2)
+                if not alt_content:
+                    alt_content = fetch(alt, retries=2)
+                if not alt_content:
+                    continue
+
+                if src_type in {"google_proxy", "search_proxy"}:
+                    if _looks_like_xml(alt_content):
+                        alt_jobs = parse_rss(alt_content, name)
+                    else:
+                        alt_jobs = parse_google_jobs(alt_content, name)
+                elif src_type == "rss":
+                    alt_jobs = parse_rss(alt_content, name)
+                elif src_type == "json_api":
+                    alt_jobs = parse_json_jobs(alt_content, name)
+                else:
+                    alt_jobs = []
+                alt_jobs = [j for j in alt_jobs if j.get("title")]
+
+                for row in alt_jobs:
+                    key = (row.get("application_url") or row.get("source_url") or row.get("title") or "").strip().lower()
+                    if not key or key in seen:
+                        continue
+                    seen.add(key)
+                    jobs.append(row)
+
+                if len(jobs) >= min_real_per_source:
+                    break
 
         if enable_backfill and len(jobs) < min_per_source:
             if ar_now_cache is None:
