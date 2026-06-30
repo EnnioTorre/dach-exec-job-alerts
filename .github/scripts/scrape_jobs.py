@@ -41,13 +41,22 @@ except Exception:  # pragma: no cover - optional dependency
 #                    (used as bot-safe proxy for LinkedIn and closed career pages)
 # ---------------------------------------------------------------------------
 SOURCES = [
-    # Stepstone — light bot protection, JSON-LD present on result pages
-    {"name": "stepstone_at_cto",  "type": "html",
-     "url": "https://www.stepstone.at/jobs/cto",                 "region": "AT"},
-    {"name": "stepstone_at_hoe",  "type": "html",
-     "url": "https://www.stepstone.at/jobs/head-of-engineering", "region": "AT"},
-    {"name": "stepstone_de_hoe",  "type": "html",
-     "url": "https://www.stepstone.de/jobs/head-of-engineering", "region": "DE"},
+    # Stepstone direct pages often time out in CI; use search proxies for resilience.
+    {"name": "stepstone_at_cto",  "type": "search_proxy",
+     "url": "https://www.bing.com/search?" + urlencode({
+         "q": 'site:stepstone.at/jobs "CTO" OR "Chief Technology Officer" Austria',
+         "count": "20",
+     }), "region": "AT"},
+    {"name": "stepstone_at_hoe",  "type": "search_proxy",
+     "url": "https://www.bing.com/search?" + urlencode({
+         "q": 'site:stepstone.at/jobs "Head of Engineering" OR "Platform Engineering Manager" Austria',
+         "count": "20",
+     }), "region": "AT"},
+    {"name": "stepstone_de_hoe",  "type": "search_proxy",
+     "url": "https://www.bing.com/search?" + urlencode({
+         "q": 'site:stepstone.de/jobs "Head of Engineering" OR "Director of Engineering" Germany',
+         "count": "20",
+     }), "region": "DE"},
 
     # Karriere.at — Austria's primary job board, light protection
     {"name": "karriere_at_cto",   "type": "html",
@@ -61,16 +70,19 @@ SOURCES = [
     {"name": "karriere_at_cloud", "type": "html",
      "url": "https://www.karriere.at/jobs/cloud-engineering",    "region": "AT"},
 
-    # Indeed AT — use RSS feed (no JS wall, structured data, officially supported)
-    {"name": "indeed_at_rss",     "type": "rss",
-     "url": "https://at.indeed.com/rss?" + urlencode({
-         "q": "head of engineering OR CTO OR engineering manager OR director of engineering",
-         "l": "Austria", "sort": "date",
+    # Indeed RSS returns 403 in CI; use proxy discovery instead.
+    {"name": "indeed_at_rss",     "type": "search_proxy",
+     "url": "https://www.bing.com/search?" + urlencode({
+         "q": 'site:indeed.de OR site:indeed.com "Head of Engineering" OR "Engineering Manager" Austria',
+         "count": "20",
      }), "region": "AT"},
 
-    # jobs.ch — Switzerland, light protection
-    {"name": "jobs_ch",           "type": "html",
-     "url": "https://www.jobs.ch/en/vacancies/?term=head+of+engineering", "region": "CH"},
+    # jobs.ch direct HTML structure is volatile; use proxy discovery as primary.
+    {"name": "jobs_ch",           "type": "search_proxy",
+     "url": "https://www.bing.com/search?" + urlencode({
+         "q": 'site:jobs.ch "Head of Engineering" OR "Platform Engineer" OR "Cloud Engineering"',
+         "count": "20",
+     }), "region": "CH"},
 
     # LinkedIn is NOT scraped directly (JS wall + ToS prohibition).
     # Reached via search-engine proxies which return public snippets.
@@ -390,6 +402,9 @@ def _extract_search_result_url(href: str) -> str:
 
         return raw_url
 
+    if href.startswith("//"):
+        return _unwrap_absolute_url("https:" + href)
+
     if href.startswith("http://") or href.startswith("https://"):
         return _unwrap_absolute_url(href)
 
@@ -474,6 +489,8 @@ def parse_google_jobs(html: str, source_name: str) -> list[dict]:
         results = [r for r in results if "stepstone." in (r.get("application_url") or "")]
     elif "indeed" in source_name:
         results = [r for r in results if "indeed." in (r.get("application_url") or "")]
+    elif source_name == "jobs_ch":
+        results = [r for r in results if "jobs.ch" in (r.get("application_url") or "")]
 
     # Deduplicate proxy results by destination URL.
     seen_urls: set[str] = set()
