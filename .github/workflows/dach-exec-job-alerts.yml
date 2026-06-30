@@ -112,31 +112,11 @@ jobs:
       #   continue-on-error: true — Python AI fallback remains available.
       # ------------------------------------------------------------------
       - name: MCP source suggestions (optional)
-        uses: github/copilot-agent@v1
-        continue-on-error: true
-        with:
-          github-token: ${{ github.token }}
-          prompt-file: .github/workflows/dach-exec-job-sources-mcp.md
-          tools: |
-            bash:
-              - python
-              - python3
-              - cat
-              - jq
-              - ls
-              - echo
-              - test
-              - mkdir
-              - date
-          mcp-servers: |
-            searxng:
-              command: npx
-              args:
-                - -y
-                - github:tisDDM/searxng-mcp
-              env:
-                SEARXNG_URL: ${{ secrets.SCRAPER_SEARXNG_URL }}
-                USE_RANDOM_INSTANCE: "true"
+        # github/copilot-agent is not available on this runner/repository scope.
+        # Keep this stage as a no-op so the Python fallback path can continue.
+        run: |
+          echo "Skipping MCP source suggestions: action not available"
+          rm -f /tmp/jobs/extra_sources.json
 
       - name: Detect MCP suggestions output
         id: detect_mcp_suggestions
