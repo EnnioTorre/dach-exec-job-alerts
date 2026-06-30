@@ -22,9 +22,10 @@ from scrape_jobs import (
     extract_jsonld_jobs,
     normalize_jsonld,
     PARSER_MAP,
+    parse_rss,
     parse_stepstone,
     parse_karriere_at,
-    parse_indeed,
+    parse_google_jobs,
     parse_jobs_ch,
 )
 
@@ -54,7 +55,13 @@ def scrape_url(url: str, name: str) -> list[dict]:
         elif "karriere" in url:
             parser = parse_karriere_at
         elif "indeed" in url:
-            parser = parse_indeed
+            # Indeed: use RSS endpoint if we have an rss/feed URL, else html parse
+            if "/rss" in url or "rss." in url:
+                parser = parse_rss
+            else:
+                parser = parse_rss  # prefer RSS for Indeed even on HTML URLs
+        elif "linkedin" in url or "google" in url:
+            parser = parse_google_jobs
         elif "jobs.ch" in url:
             parser = parse_jobs_ch
 
