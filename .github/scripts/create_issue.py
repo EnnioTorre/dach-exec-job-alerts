@@ -9,6 +9,7 @@ Exits 0 on success, 1 on failure.
 
 import json
 import os
+import re
 import subprocess
 import sys
 from datetime import date
@@ -58,6 +59,37 @@ def format_body(data: dict) -> str:
         "",
     ]
 
+    def _is_job_ad_url(url: str) -> bool:
+        u = (url or "").lower()
+        if not u:
+            return False
+        if any(x in u for x in ("google.com/search", "bing.com/search", "duckduckgo.com/html")):
+            return False
+        if "karriere.at" in u:
+            if "/jobs/" not in u:
+                return False
+            if any(u.endswith(x) for x in (
+                "/jobs/cto",
+                "/jobs/head-of-engineering",
+                "/jobs/software-engineering",
+                "/jobs/platform-engineering",
+                "/jobs/cloud-engineering",
+            )):
+                return False
+        if re.match(r"https?://[^/]+/?$", u):
+            return False
+        return True
+
+    def _looks_useful(job: dict) -> bool:
+        title = (job.get("title") or "").lower()
+        if any(x in title for x in ("jobs |", "jobbörse", "stellenmarkt", "karriere.at")):
+            return False
+        return _is_job_ad_url(job.get("application_url") or job.get("source_url") or "")
+
+    useful_jobs = [j for j in jobs if _looks_useful(j)]
+    english_jobs = [j for j in useful_jobs if (j.get("language_hint") or "").lower() == "en"]
+    digest_jobs = english_jobs[:10] if english_jobs else useful_jobs[:10]
+
     # ---- Job table ----
     if ai_enriched:
         ai_jobs: list[dict] = data.get("ai_enrichment", {}).get("top_jobs", [])
@@ -88,18 +120,19 @@ def format_body(data: dict) -> str:
         lines += [
             "## 📋 Top Executive Roles (deterministic ranking)",
             "",
-            "| # | Role | Company | Location | Score | Salary |",
-            "|---|------|---------|----------|-------|--------|",
+            "| # | Role | Company | Location | Lang | Score | Salary |",
+            "|---|------|---------|----------|------|-------|--------|",
         ]
-        for i, j in enumerate(jobs[:10], 1):
+        for i, j in enumerate(digest_jobs, 1):
             title = j.get("title", "N/A")
             company = j.get("company", "N/A")
             location = j.get("location", "N/A")
+            lang = (j.get("language_hint") or "").lower() or "n/a"
             score = j.get("score", "")
             salary = j.get("salary_text") or "N/A"
             url = j.get("application_url") or j.get("source_url", "")
             title_md = f"[{title}]({url})" if url else title
-            lines.append(f"| {i} | {title_md} | {company} | {location} | {score} | {salary} |")
+            lines.append(f"| {i} | {title_md} | {company} | {location} | {lang} | {score} | {salary} |")
         lines.append("")
 
     # ---- Source performance table ----

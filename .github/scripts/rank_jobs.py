@@ -6,7 +6,9 @@ Writes /tmp/jobs/jobs_ranked.json
 """
 
 import json
+import os
 import re
+from urllib.parse import urlparse
 from collections import defaultdict
 from datetime import date
 
@@ -92,6 +94,28 @@ MANAGEMENT_KEYWORDS = [
     "cto",
 ]
 
+JOB_URL_HINTS = [
+    "/jobs/",
+    "/job/",
+    "/careers",
+    "/career",
+    "/vacancies",
+    "/position",
+    "/stellen",
+]
+
+NON_JOB_TITLE_PATTERNS = [
+    r"\bwhat is\b",
+    r"\bdefinition\b",
+    r"\bgehalt\b",
+    r"\bsalary\b",
+    r"\bguide\b",
+    r"\btips\b",
+    r"\bblog\b",
+    r"\bnews\b",
+    r"\bwiki\b",
+]
+
 
 def _contains_keyword(text: str, keyword: str) -> bool:
     # Match keyword as a token/phrase, not a loose substring.
@@ -118,6 +142,16 @@ TECH_IC_KEYWORDS = [
 
 def is_relevant(job: dict) -> bool:
     title = (job.get("title") or "").lower()
+    url = (job.get("application_url") or job.get("source_url") or "").lower()
+
+    if any(re.search(p, title) for p in NON_JOB_TITLE_PATTERNS):
+        return False
+
+    if any(host in url for host in ("bing.com/search", "google.com/search", "duckduckgo.com/html")):
+        return False
+
+    # If URL lacks typical job path hints, require stronger job-title signal.
+    has_job_url_hint = any(h in url for h in JOB_URL_HINTS)
     if any(kw in title for kw in EXCLUDE_KEYWORDS):
         return False
 
@@ -125,6 +159,20 @@ def is_relevant(job: dict) -> bool:
     has_role = any(kw in title for kw in ROLE_KEYWORDS)
     has_domain = any(kw in title for kw in DOMAIN_KEYWORDS)
     has_tech_ic_role = any(kw in title for kw in TECH_IC_KEYWORDS)
+
+    # Filter obvious category/listing pages that are not concrete job ads.
+    if "karriere.at" in url:
+        if re.search(r"/jobs/(cto|head-of-engineering|software-engineering|platform-engineering|cloud-engineering)$", url):
+            return False
+        if re.search(r"/jobs/[a-z\-]+$", url) and not re.search(r"/jobs/\d+", url):
+            return False
+
+    if re.fullmatch(r"https?://[^/]+/?", url):
+        return False
+
+    if not has_job_url_hint and not (has_role and has_domain):
+        return False
+
     return cto_like or (has_role and has_domain) or has_tech_ic_role
 
 
@@ -203,10 +251,10 @@ def salary_score(salary_text: str) -> float:
 
 def language_score(language_hint: str, company: str) -> float:
     if (language_hint or "").lower() == "en":
-        return 4.0
+        return 5.0
     if "international" in company.lower():
         return 4.0
-    return 3.0
+    return 1.5
 
 
 def it_management_focus_score(title: str) -> float:
@@ -227,6 +275,10 @@ def it_management_focus_score(title: str) -> float:
     has_it = has_cto or _contains_any(t, DOMAIN_KEYWORDS) or bool(re.search(r"\bit\b", t))
     has_management = has_cto or _contains_any(t, MANAGEMENT_KEYWORDS)
 
+    # Pure CTO titles often surface less actionable results than explicit engineering-manager roles.
+    if has_cto and not _contains_any(t, ["engineering", "platform", "cloud", "software", "devops"]):
+        return 2.0
+
     if has_it and has_management:
         return 5.0
     if has_it:
@@ -242,7 +294,7 @@ def score_job(job: dict) -> float:
     ss = salary_score(job.get("salary_text", ""))
     lang = language_score(job.get("language_hint", ""), job.get("company", ""))
     focus = it_management_focus_score(job.get("title", ""))
-    raw = 0.25 * ls + 0.15 * cs + 0.15 * ss + 0.10 * lang + 0.35 * focus
+    raw = 0.20 * ls + 0.10 * cs + 0.10 * ss + 0.30 * lang + 0.30 * focus
     return round(max(1.0, min(5.0, raw)), 1)
 
 
@@ -269,7 +321,34 @@ def main() -> None:
 
     # 1. Relevance filter
     relevant = [j for j in jobs if is_relevant(j)]
+
+    # 1b. Enforce source-domain consistency (especially for proxy RSS results).
+    def _source_domain_ok(job: dict) -> bool:
+        src = (job.get("source_name") or "").lower()
+        url = (job.get("application_url") or job.get("source_url") or "").lower()
+        host = urlparse(url).netloc.lower()
+        if "stepstone" in src:
+            return "stepstone." in host
+        if "indeed" in src:
+            return "indeed." in host
+        if "linkedin" in src:
+            return "linkedin.com" in host
+        if src == "jobs_ch":
+            return "jobs.ch" in host
+        if src.startswith("karriere_"):
+            return "karriere.at" in host
+        return True
+
+    relevant = [j for j in relevant if _source_domain_ok(j)]
     print(f"After title filter: {len(relevant)}")
+
+    # Optional language gating for issue quality.
+    rank_language_only = os.getenv("RANK_LANGUAGE_ONLY", "").strip().lower()
+    if rank_language_only:
+        relevant = [
+            j for j in relevant
+            if (j.get("language_hint") or "").lower() == rank_language_only
+        ]
 
     # 2. Deduplication
     seen: dict[str, bool] = {}
@@ -288,7 +367,12 @@ def main() -> None:
     # 4. Sort descending
     ranked = sorted(deduped, key=lambda j: j["score"], reverse=True)
 
-    # 5. Preserve cross-source spread when multiple sources exist.
+    # 5. Prefer English roles first; retain German only to fill the list.
+    english = [j for j in ranked if (j.get("language_hint") or "").lower() == "en"]
+    non_english = [j for j in ranked if (j.get("language_hint") or "").lower() != "en"]
+    ranked = english + non_english
+
+    # 6. Preserve cross-source spread when multiple sources exist.
     # First take one item per source in score order, then fill remaining slots.
     by_source: dict[str, list[dict]] = defaultdict(list)
     for job in ranked:
@@ -307,7 +391,7 @@ def main() -> None:
     for src in source_order:
         diversified.extend(by_source[src])
 
-    # 6. Per-source diversity cap (≤50% of final list, minimum 10 per source)
+    # 7. Per-source diversity cap (≤50% of final list, minimum 10 per source)
     # A hard min of 10 prevents over-pruning when only 1–2 sources are active.
     source_counts: dict[str, int] = {}
     capped: list[dict] = []
@@ -320,8 +404,12 @@ def main() -> None:
         if len(capped) >= 40:
             break
 
-    # Preserve diversification constraints but present final list by score.
-    capped = sorted(capped, key=lambda j: j["score"], reverse=True)
+    # Preserve diversification constraints and strongly prefer English listings at the top.
+    capped = sorted(
+        capped,
+        key=lambda j: ((j.get("language_hint") or "").lower() == "en", j["score"]),
+        reverse=True,
+    )
 
     print(f"Final ranked: {len(capped)}")
 
