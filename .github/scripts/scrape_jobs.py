@@ -599,6 +599,11 @@ def normalize_jsonld(job: dict, source_name: str) -> dict:
 def parse_rss(xml_text: str, source_name: str) -> list[dict]:
     """Parse RSS 2.0 or Atom feeds into normalised job dicts."""
     jobs: list[dict] = []
+    is_proxy_source = (
+        source_name.startswith(("google_", "bing_", "ddg_"))
+        or source_name.endswith("_rss")
+        or "proxy" in source_name
+    )
     try:
         root = ET.fromstring(xml_text)
     except ET.ParseError as exc:
@@ -621,6 +626,13 @@ def parse_rss(xml_text: str, source_name: str) -> list[dict]:
         if not link:
             link_el = item.find("atom:link", ns)
             link = (link_el.attrib.get("href", "") if link_el is not None else "")
+
+        # Proxy RSS feeds frequently return search-engine wrapper URLs.
+        # Normalize them to destination job links before downstream filtering.
+        if link and is_proxy_source:
+            unwrapped = _extract_search_result_url(link)
+            if unwrapped:
+                link = unwrapped
 
         # Indeed RSS embeds location/company as plain text in <description>
         desc = _t("description")
@@ -1318,6 +1330,18 @@ def main() -> None:
         # Drop records without a title
         jobs = [j for j in jobs if j.get("title")]
 
+        # Run proxy URL-quality gating before retry decisions. This ensures
+        # noisy SERP/RSS parses do not prevent alternate URL retries.
+        if src_type in {"google_proxy", "search_proxy"}:
+            before_quality_gate = len(jobs)
+            jobs = [
+                j for j in jobs
+                if _expected_job_url((j.get("application_url") or j.get("source_url") or ""), name)
+            ]
+            dropped = before_quality_gate - len(jobs)
+            if dropped > 0:
+                print(f"  URL quality gate dropped {dropped} rows for {name}")
+
         # Some proxy pages return successful responses but no extractable cards.
         # In that case, try alternate source URLs before falling back further.
         if len(jobs) < min_real_per_source and name in SOURCE_URL_FALLBACKS:
@@ -1365,18 +1389,6 @@ def main() -> None:
                 ar_content = fetch("https://www.arbeitnow.com/api/job-board-api", retries=2)
                 ar_now_cache = parse_json_jobs(ar_content, "arbeitnow_dach") if ar_content else []
             jobs = backfill_source_jobs(name, src.get("region", "DACH"), jobs, ar_now_cache or [], min_per_source)
-
-        # Final URL-quality gate for proxy sources to suppress false positives
-        # before they reach ranking (for example generic brand/wiki pages).
-        if src_type in {"google_proxy", "search_proxy"}:
-            before_quality_gate = len(jobs)
-            jobs = [
-                j for j in jobs
-                if _expected_job_url((j.get("application_url") or j.get("source_url") or ""), name)
-            ]
-            dropped = before_quality_gate - len(jobs)
-            if dropped > 0:
-                print(f"  URL quality gate dropped {dropped} rows for {name}")
 
         stats[name] = len(jobs)
         all_jobs.extend(jobs)

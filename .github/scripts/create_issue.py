@@ -185,7 +185,69 @@ def create_issue(title: str, body: str, labels: list[str]) -> bool:
             return True
     
     print(f"gh issue create failed:\n{result.stderr.strip()}", file=sys.stderr)
+
+    # Conflict fallback: if a digest issue with the same title already exists,
+    # append a refresh comment and keep the workflow green.
+    conflict_markers = ("409", "conflict", "already exists", "duplicate")
+    err_lower = (result.stderr or "").lower()
+    if any(m in err_lower for m in conflict_markers):
+        existing = find_open_issue_by_title(title)
+        if existing:
+            number = existing.get("number")
+            url = existing.get("url")
+            note = (
+                "Digest refresh attempted. The workflow detected an existing open "
+                "issue with the same title, so this run updated the thread instead "
+                "of creating a duplicate."
+            )
+            comment_ok = add_issue_comment(number, note)
+            if comment_ok:
+                print(f"Issue already exists; updated existing issue: {url}")
+                return True
+
     return False
+
+
+def find_open_issue_by_title(title: str) -> dict | None:
+    """Return an open issue that matches title exactly, if present."""
+    cmd = [
+        "gh",
+        "issue",
+        "list",
+        "--state",
+        "open",
+        "--limit",
+        "50",
+        "--search",
+        f'in:title "{title}"',
+        "--json",
+        "number,title,url",
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        return None
+
+    try:
+        items = json.loads(result.stdout or "[]")
+    except json.JSONDecodeError:
+        return None
+
+    for item in items:
+        if (item.get("title") or "").strip() == title.strip():
+            return item
+    return None
+
+
+def add_issue_comment(number: int, comment: str) -> bool:
+    """Append a comment to an existing issue."""
+    if not number:
+        return False
+    result = subprocess.run(
+        ["gh", "issue", "comment", str(number), "--body", comment],
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0
 
 
 def main() -> None:
