@@ -88,7 +88,8 @@ def format_body(data: dict) -> str:
 
     useful_jobs = [j for j in jobs if _looks_useful(j)]
     english_jobs = [j for j in useful_jobs if (j.get("language_hint") or "").lower() == "en"]
-    digest_jobs = english_jobs[:10] if english_jobs else useful_jobs[:10]
+    non_english_jobs = [j for j in useful_jobs if (j.get("language_hint") or "").lower() != "en"]
+    digest_jobs = (english_jobs + non_english_jobs)[:10]
 
     # ---- Job table ----
     if ai_enriched:
