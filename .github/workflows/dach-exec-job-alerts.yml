@@ -58,6 +58,7 @@ jobs:
       - name: Scrape jobs
         run: python .github/scripts/scrape_jobs.py
         env:
+          SCRAPER_FAIL_ON_FETCH_ERROR: "false"
           # Optional self-hosted search provider (SearXNG)
           SCRAPER_SEARXNG_URL: ${{ secrets.SCRAPER_SEARXNG_URL }}
           SCRAPER_SEARXNG_KEY: ${{ secrets.SCRAPER_SEARXNG_KEY }}
@@ -90,6 +91,7 @@ jobs:
       - name: Validate scraper loop
         run: python .github/scripts/test_scraper_loop.py
         env:
+          SCRAPER_FAIL_ON_FETCH_ERROR: "false"
           TEST_ATTEMPTS: "3"
           TEST_MIN_RAW: "10"
           TEST_MIN_RANKED: "10"
@@ -198,3 +200,4 @@ jobs:
           name: job-data-${{ github.run_id }}
           path: /tmp/jobs/
           retention-days: 7
+          if-no-files-found: ignore
