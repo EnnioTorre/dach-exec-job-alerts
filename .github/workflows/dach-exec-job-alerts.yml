@@ -38,6 +38,21 @@ jobs:
         run: python .github/scripts/rank_jobs.py
 
       # ------------------------------------------------------------------
+      # Stage 2b: live validation loop (scrape+rank retries)
+      #   Re-runs the deterministic pipeline a few times and validates
+      #   output thresholds so transient fetch/parser issues self-heal.
+      # ------------------------------------------------------------------
+      - name: Validate scraper loop
+        run: python .github/scripts/test_scraper_loop.py
+        env:
+          TEST_ATTEMPTS: "3"
+          TEST_MIN_RAW: "5"
+          TEST_MIN_RANKED: "1"
+          TEST_MIN_ACTIVE_SOURCES: "2"
+          TEST_AUTO_ENABLE_INSECURE_SSL_ON_FAIL: "false"
+          SCRAPER_SSL_FALLBACK_INSECURE: "false"
+
+      # ------------------------------------------------------------------
       # Stage 3a: AI source suggestions — only triggers when first pass
       #   returned fewer than 8 relevant listings.
       #   Calls GitHub Models once → writes /tmp/jobs/extra_sources.json

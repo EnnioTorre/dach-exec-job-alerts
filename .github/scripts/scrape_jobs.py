@@ -26,6 +26,11 @@ from urllib.parse import urlencode
 import requests
 from bs4 import BeautifulSoup
 
+try:
+    import certifi
+except Exception:  # pragma: no cover - optional dependency
+    certifi = None
+
 # ---------------------------------------------------------------------------
 # Source registry
 #   type:
@@ -110,6 +115,20 @@ _MIN_DELAY = 2.0   # seconds between requests to the same host
 _MAX_JITTER = 2.0  # additional random jitter (uniform)
 
 
+def _ssl_verify_option() -> str | bool:
+    """
+    Resolve TLS verification mode.
+
+    Default: verify with certifi bundle when available, else requests default.
+    Override: SCRAPER_SSL_VERIFY=false disables verification (last resort).
+    """
+    if os.getenv("SCRAPER_SSL_VERIFY", "true").lower() in {"0", "false", "no"}:
+        return False
+    if certifi is not None:
+        return certifi.where()
+    return True
+
+
 def _polite_delay(url: str) -> None:
     """Sleep enough to respect a per-host minimum delay + random jitter."""
     from urllib.parse import urlparse
@@ -127,11 +146,12 @@ def fetch(url: str, retries: int = 3) -> str | None:
     headers = dict(_BASE_HEADERS)
     headers["User-Agent"] = random.choice(_USER_AGENTS)
     session.headers.update(headers)
+    verify_opt = _ssl_verify_option()
 
     for attempt in range(retries):
         _polite_delay(url)
         try:
-            r = session.get(url, timeout=25, allow_redirects=True)
+            r = session.get(url, timeout=25, allow_redirects=True, verify=verify_opt)
             if r.status_code == 200:
                 return r.text
             print(f"  HTTP {r.status_code} for {url}")
@@ -142,6 +162,20 @@ def fetch(url: str, retries: int = 3) -> str | None:
                 time.sleep(8 + random.uniform(0, 4))
                 if attempt == retries - 1:
                     break
+        except requests.exceptions.SSLError as exc:
+            print(f"  SSL attempt {attempt + 1} failed: {exc}")
+            # Optional fallback for environments with broken trust stores.
+            # Enable only when explicitly requested.
+            if os.getenv("SCRAPER_SSL_FALLBACK_INSECURE", "false").lower() in {"1", "true", "yes"}:
+                try:
+                    print("  Retrying once with SSL verification disabled (fallback mode)")
+                    r = session.get(url, timeout=25, allow_redirects=True, verify=False)
+                    if r.status_code == 200:
+                        return r.text
+                    print(f"  HTTP {r.status_code} for {url} (insecure fallback)")
+                except requests.RequestException:
+                    pass
+            time.sleep(2)
         except requests.RequestException as exc:
             print(f"  Attempt {attempt + 1} failed: {exc}")
             time.sleep(3)
