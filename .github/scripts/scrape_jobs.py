@@ -4,12 +4,13 @@ Fetches job listings from multiple DACH sources.
 Source strategy by bot-protection level:
   - Stepstone / Karriere.at / jobs.ch : light protection → standard HTML scrape
     (JSON-LD first, site-specific HTML parser as fallback)
-  - Indeed                             : moderate protection → use RSS feed
-    (XML, no JS wall, officially supported, returns structured data)
+    - Indeed                             : moderate protection → search proxies
+        (direct RSS can return 403 in CI)
   - LinkedIn                           : very strong (JS wall + ToS block) →
     never scraped directly; reached only via Google search proxy queries
   - Google search                      : used as a bot-safe proxy for
     LinkedIn and hard-to-reach career pages
+    - Public JSON APIs                   : deterministic fallback for diversity
 
 Writes /tmp/jobs/jobs_raw.json.
 """
@@ -38,6 +39,8 @@ except Exception:  # pragma: no cover - optional dependency
 #     "html"        — standard HTTP fetch → JSON-LD / HTML parser
 #     "rss"         — XML RSS/Atom feed   → parse_rss()
 #     "google_proxy"— Google search HTML  → parse_google_jobs()
+#     "search_proxy"— Bing/DDG search HTML→ parse_google_jobs()
+#     "json_api"    — JSON endpoint       → parse_json_jobs()
 #                    (used as bot-safe proxy for LinkedIn and closed career pages)
 # ---------------------------------------------------------------------------
 SOURCES = [
@@ -83,6 +86,10 @@ SOURCES = [
          "q": 'site:jobs.ch "Head of Engineering" OR "Platform Engineer" OR "Cloud Engineering"',
          "count": "20",
      }), "region": "CH"},
+
+    # Deterministic public JSON feed fallback to preserve non-Karriere diversity.
+    {"name": "arbeitnow_dach",    "type": "json_api",
+     "url": "https://www.arbeitnow.com/api/job-board-api", "region": "DACH"},
 
     # LinkedIn is NOT scraped directly (JS wall + ToS prohibition).
     # Reached via search-engine proxies which return public snippets.
@@ -357,6 +364,66 @@ def parse_rss(xml_text: str, source_name: str) -> list[dict]:
     return jobs
 
 
+def parse_json_jobs(json_text: str, source_name: str) -> list[dict]:
+    """Parse public JSON job feeds into normalized rows."""
+    try:
+        payload = json.loads(json_text)
+    except json.JSONDecodeError as exc:
+        print(f"  JSON parse error for {source_name}: {exc}")
+        return []
+
+    items = []
+    if isinstance(payload, dict):
+        raw_items = payload.get("data") or payload.get("jobs") or []
+        if isinstance(raw_items, list):
+            items = raw_items
+    elif isinstance(payload, list):
+        items = payload
+
+    jobs: list[dict] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+
+        title = (item.get("title") or "").strip()
+        if not title:
+            continue
+
+        company = (item.get("company_name") or item.get("company") or "").strip()
+        location = (item.get("location") or "").strip()
+        if isinstance(item.get("tags"), list) and not location:
+            # Some feeds encode location affinity via tags.
+            location = " ".join(str(t) for t in item.get("tags", [])[:5])
+
+        # Keep only DACH-relevant rows to avoid flooding ranking with irrelevant global roles.
+        loc_l = location.lower()
+        if not any(k in loc_l for k in (
+            "austria", "wien", "vienna", "graz", "linz", "salzburg",
+            "germany", "deutschland", "berlin", "munich", "münchen",
+            "switzerland", "schweiz", "zurich", "zürich", "basel",
+            "dach", "remote",
+        )):
+            continue
+
+        link = (item.get("url") or item.get("job_url") or "").strip()
+        if not link:
+            continue
+
+        jobs.append({
+            "title": title,
+            "company": company,
+            "location": location,
+            "source_name": source_name,
+            "source_url": link,
+            "application_url": link,
+            "publish_date": (item.get("created_at") or item.get("published_at") or "").strip(),
+            "salary_text": "",
+            "language_hint": "en",
+        })
+
+    return jobs
+
+
 # ---------------------------------------------------------------------------
 # Google search proxy parser
 #   Extracts job-card snippets from Google SERP HTML.
@@ -372,6 +439,12 @@ def _extract_search_result_url(href: str) -> str:
         parsed_abs = urlparse(raw_url)
         host = parsed_abs.netloc.lower()
         qs = parse_qs(parsed_abs.query)
+
+        # Generic wrapper parameters commonly used by search engines.
+        for key in ("url", "u", "q", "uddg", "target", "r"):
+            cand = qs.get(key, [""])[0]
+            if cand.startswith("http://") or cand.startswith("https://"):
+                return unquote(cand)
 
         # Google absolute redirect wrappers
         if host.endswith("google.com") and parsed_abs.path.startswith("/url"):
@@ -414,6 +487,16 @@ def _extract_search_result_url(href: str) -> str:
             qs = parse_qs(parsed.query)
             target = qs.get("q", [""])[0] or qs.get("url", [""])[0]
             return unquote(target) if target else ""
+        if parsed.path.startswith("/ck/") or parsed.path.startswith("/aclick"):
+            qs = parse_qs(parsed.query)
+            target = (
+                qs.get("u", [""])[0]
+                or qs.get("url", [""])[0]
+                or qs.get("r", [""])[0]
+                or qs.get("q", [""])[0]
+            )
+            if target.startswith("http://") or target.startswith("https://"):
+                return unquote(target)
     return ""
 
 
@@ -481,6 +564,16 @@ def parse_google_jobs(html: str, source_name: str) -> list[dict]:
         snippet_el = item.select_one(".result__snippet, [data-result='snippet'], .snippet")
         snippet = snippet_el.get_text(" ", strip=True) if snippet_el else ""
         _append_result(a.get_text(strip=True), a.get("href", ""), snippet)
+
+    # Generic fallback for changing SERP markup: keep only anchors that look job-related.
+    if not results:
+        for a in soup.find_all("a", href=True):
+            text = a.get_text(" ", strip=True)
+            if len(text) < 10:
+                continue
+            if not re.search(r"job|jobs|engineering|cto|manager|director|head", text, re.I):
+                continue
+            _append_result(text, a.get("href", ""), "")
 
     # Keep only the domain family implied by the source name.
     if "linkedin" in source_name:
@@ -762,6 +855,9 @@ def main() -> None:
         if src_type == "rss":
             jobs = parse_rss(content, name)
             print(f"  RSS: {len(jobs)} jobs")
+        elif src_type == "json_api":
+            jobs = parse_json_jobs(content, name)
+            print(f"  JSON API: {len(jobs)} jobs")
         elif src_type in {"google_proxy", "search_proxy"}:
             jobs = parse_google_jobs(content, name)
             print(f"  Google proxy: {len(jobs)} jobs")
