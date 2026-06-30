@@ -1,0 +1,99 @@
+name: dach-exec-job-alerts
+
+on:
+  schedule:
+    - cron: "15 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install --quiet requests beautifulsoup4 openai
+
+      # ------------------------------------------------------------------
+      # Stage 1: deterministic scrape (pure Python + HTTP, no AI)
+      # ------------------------------------------------------------------
+      - name: Scrape jobs
+        run: python .github/scripts/scrape_jobs.py
+
+      # ------------------------------------------------------------------
+      # Stage 2: deterministic rank (filter, dedup, score formula)
+      # ------------------------------------------------------------------
+      - name: Rank jobs
+        run: python .github/scripts/rank_jobs.py
+
+      # ------------------------------------------------------------------
+      # Stage 3a: AI source suggestions — only triggers when first pass
+      #   returned fewer than 8 relevant listings.
+      #   Calls GitHub Models once → writes /tmp/jobs/extra_sources.json
+      #   with new/improved URLs.  continue-on-error: true.
+      # ------------------------------------------------------------------
+      - name: AI source suggestions (if results thin)
+        run: python .github/scripts/ai_suggest_sources.py
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ------------------------------------------------------------------
+      # Stage 3b: Second scrape pass using AI-suggested URLs.
+      #   No-op if extra_sources.json is absent (enough results in pass 1).
+      #   Merges new jobs into jobs_raw.json.  continue-on-error: true.
+      # ------------------------------------------------------------------
+      - name: Scrape extra sources (second pass)
+        run: python .github/scripts/scrape_extra.py
+        continue-on-error: true
+
+      # ------------------------------------------------------------------
+      # Stage 3c: Re-rank after potential second pass
+      #   Safe to run even if second pass was a no-op — just rewrites the
+      #   same ranked output.  continue-on-error: true.
+      # ------------------------------------------------------------------
+      - name: Re-rank after second pass
+        run: python .github/scripts/rank_jobs.py
+        continue-on-error: true
+
+      # ------------------------------------------------------------------
+      # Stage 4: optional AI enrichment via GitHub Models REST API
+      #   - Uses GITHUB_TOKEN (separate quota from Copilot agentic workflows)
+      #   - One focused API call for final re-ranking + source quality notes
+      #   - continue-on-error: true — workflow succeeds even if AI fails
+      # ------------------------------------------------------------------
+      - name: AI enrichment (optional)
+        run: python .github/scripts/ai_enrich.py
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ------------------------------------------------------------------
+      # Stage 5: create GitHub issue (always runs)
+      # ------------------------------------------------------------------
+      - name: Create digest issue
+        run: python .github/scripts/create_issue.py
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ------------------------------------------------------------------
+      # Upload all job data for debugging (7-day retention)
+      # ------------------------------------------------------------------
+      - name: Upload job data artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: job-data-${{ github.run_id }}
+          path: /tmp/jobs/
+          retention-days: 7
