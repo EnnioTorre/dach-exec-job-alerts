@@ -29,6 +29,7 @@ MAX_TOKENS = 800
 # Only call AI and attempt a second scrape when fewer than this many relevant,
 # deduped listings were found in the first pass.
 ENOUGH_THRESHOLD = 8
+MIN_SOURCE_DIVERSITY = 2
 
 
 def load_ranked() -> dict:
@@ -40,6 +41,8 @@ def build_prompt(data: dict) -> str:
     today = data.get("date", str(date.today()))
     stats: dict = data.get("source_stats", {})
     total_deduped: int = data.get("total_deduped", 0)
+    ranked_jobs: list[dict] = data.get("jobs", [])
+    ranked_sources = sorted({j.get("source_name", "") for j in ranked_jobs if j.get("source_name")})
 
     stats_lines = "\n".join(
         f"  {src}: {count} listings"
@@ -52,6 +55,8 @@ def build_prompt(data: dict) -> str:
 
 A job scraper ran and found only {total_deduped} relevant exec-level tech roles
 after filtering and deduplication. This is below the quality threshold.
+
+Ranked result source diversity: {len(ranked_sources)} distinct sources -> {ranked_sources}
 
 Source results today:
 {stats_lines}
@@ -118,10 +123,13 @@ def call_github_models(prompt: str) -> dict | None:
 def main() -> None:
     data = load_ranked()
     total_deduped: int = data.get("total_deduped", 0)
+    ranked_jobs: list[dict] = data.get("jobs", [])
+    ranked_sources = {j.get("source_name", "") for j in ranked_jobs if j.get("source_name")}
 
-    if total_deduped >= ENOUGH_THRESHOLD:
+    if total_deduped >= ENOUGH_THRESHOLD and len(ranked_sources) >= MIN_SOURCE_DIVERSITY:
         print(
-            f"Enough listings found ({total_deduped} >= {ENOUGH_THRESHOLD}) — "
+            f"Enough listings found ({total_deduped} >= {ENOUGH_THRESHOLD}) and "
+            f"source diversity is acceptable ({len(ranked_sources)} >= {MIN_SOURCE_DIVERSITY}) — "
             "skipping AI source suggestions"
         )
         # Ensure no stale extra_sources.json from a previous run influences scrape_extra
@@ -129,8 +137,8 @@ def main() -> None:
         sys.exit(0)
 
     print(
-        f"Only {total_deduped} relevant listings found (< {ENOUGH_THRESHOLD}) — "
-        "asking AI for additional sources …"
+        f"Insufficient first-pass quality: listings={total_deduped}, "
+        f"ranked_sources={len(ranked_sources)} — asking AI for additional sources …"
     )
 
     prompt = build_prompt(data)
@@ -155,7 +163,9 @@ def main() -> None:
         print(f"  ~ {s.get('source')} → {s.get('improved_url')}")
 
     payload = {
-        "triggered_because": f"only {total_deduped} listings in first pass",
+        "triggered_because": (
+            f"only {total_deduped} listings and {len(ranked_sources)} ranked sources in first pass"
+        ),
         "new_sources": new_sources,
         "source_improvements": improvements,
     }

@@ -8,6 +8,7 @@ Validation checks:
 - jobs_raw.json exists and has at least MIN_RAW jobs
 - jobs_ranked.json exists and has at least MIN_RANKED jobs
 - at least MIN_ACTIVE_SOURCES sources returned >0 listings
+- ranked output contains at least MIN_RANKED_SOURCES distinct sources
 - no parser crash
 
 Use env vars to tune:
@@ -15,6 +16,7 @@ Use env vars to tune:
 - TEST_MIN_RAW (default 5)
 - TEST_MIN_RANKED (default 1)
 - TEST_MIN_ACTIVE_SOURCES (default 2)
+- TEST_MIN_RANKED_SOURCES (default 2)
 - TEST_AUTO_ENABLE_INSECURE_SSL_ON_FAIL (default true)
 """
 
@@ -53,7 +55,12 @@ def _read_json(path: Path) -> dict:
         return json.load(f)
 
 
-def validate(min_raw: int, min_ranked: int, min_active_sources: int) -> tuple[bool, str]:
+def validate(
+    min_raw: int,
+    min_ranked: int,
+    min_active_sources: int,
+    min_ranked_sources: int,
+) -> tuple[bool, str]:
     if not RAW.exists():
         return False, "missing /tmp/jobs/jobs_raw.json"
     if not RANKED.exists():
@@ -66,6 +73,11 @@ def validate(min_raw: int, min_ranked: int, min_active_sources: int) -> tuple[bo
     ranked_jobs = ranked.get("jobs", [])
     stats = raw.get("stats", {})
     active_sources = sum(1 for v in stats.values() if isinstance(v, int) and v > 0)
+    ranked_sources = {
+        j.get("source_name", "unknown")
+        for j in ranked_jobs
+        if j.get("source_name")
+    }
 
     if len(raw_jobs) < min_raw:
         return False, f"raw jobs too low: {len(raw_jobs)} < {min_raw}"
@@ -73,10 +85,15 @@ def validate(min_raw: int, min_ranked: int, min_active_sources: int) -> tuple[bo
         return False, f"ranked jobs too low: {len(ranked_jobs)} < {min_ranked}"
     if active_sources < min_active_sources:
         return False, f"active sources too low: {active_sources} < {min_active_sources}"
+    if len(ranked_sources) < min_ranked_sources:
+        return False, (
+            f"ranked source diversity too low: {len(ranked_sources)} < "
+            f"{min_ranked_sources}"
+        )
 
     return True, (
         f"valid result: raw={len(raw_jobs)} ranked={len(ranked_jobs)} "
-        f"active_sources={active_sources}"
+        f"active_sources={active_sources} ranked_sources={len(ranked_sources)}"
     )
 
 
@@ -85,6 +102,7 @@ def main() -> int:
     min_raw = int(os.getenv("TEST_MIN_RAW", "5"))
     min_ranked = int(os.getenv("TEST_MIN_RANKED", "1"))
     min_active_sources = int(os.getenv("TEST_MIN_ACTIVE_SOURCES", "2"))
+    min_ranked_sources = int(os.getenv("TEST_MIN_RANKED_SOURCES", "2"))
     auto_insecure_on_ssl = os.getenv("TEST_AUTO_ENABLE_INSECURE_SSL_ON_FAIL", "true").lower() in {"1", "true", "yes"}
     insecure_enabled = os.getenv("SCRAPER_SSL_FALLBACK_INSECURE", "false").lower() in {"1", "true", "yes"}
 
@@ -116,7 +134,7 @@ def main() -> int:
             print(last_reason)
             continue
 
-        ok, reason = validate(min_raw, min_ranked, min_active_sources)
+        ok, reason = validate(min_raw, min_ranked, min_active_sources, min_ranked_sources)
         print(f"validation: {reason}")
         if ok:
             return 0

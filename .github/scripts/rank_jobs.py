@@ -7,6 +7,7 @@ Writes /tmp/jobs/jobs_ranked.json
 
 import json
 import re
+from collections import defaultdict
 from datetime import date
 
 # ---------------------------------------------------------------------------
@@ -184,12 +185,31 @@ def main() -> None:
     # 4. Sort descending
     ranked = sorted(deduped, key=lambda j: j["score"], reverse=True)
 
-    # 5. Per-source diversity cap (≤50% of final list, minimum 10 per source)
+    # 5. Preserve cross-source spread when multiple sources exist.
+    # First take one item per source in score order, then fill remaining slots.
+    by_source: dict[str, list[dict]] = defaultdict(list)
+    for job in ranked:
+        by_source[job.get("source_name", "unknown")].append(job)
+
+    diversified: list[dict] = []
+    source_order = sorted(
+        by_source,
+        key=lambda src: by_source[src][0]["score"] if by_source[src] else 0,
+        reverse=True,
+    )
+    for src in source_order:
+        if by_source[src]:
+            diversified.append(by_source[src].pop(0))
+
+    for src in source_order:
+        diversified.extend(by_source[src])
+
+    # 6. Per-source diversity cap (≤50% of final list, minimum 10 per source)
     # A hard min of 10 prevents over-pruning when only 1–2 sources are active.
     source_counts: dict[str, int] = {}
     capped: list[dict] = []
-    cap = max(10, round(len(ranked) * 0.50))
-    for j in ranked:
+    cap = max(10, round(len(diversified) * 0.50))
+    for j in diversified:
         src = j.get("source_name", "unknown")
         if source_counts.get(src, 0) < cap:
             source_counts[src] = source_counts.get(src, 0) + 1
@@ -205,6 +225,7 @@ def main() -> None:
         "total_raw": len(jobs),
         "total_relevant": len(relevant),
         "total_deduped": len(deduped),
+        "ranked_source_count": len({j.get("source_name", "unknown") for j in capped}),
         "jobs": capped,
     }
     out_path = "/tmp/jobs/jobs_ranked.json"

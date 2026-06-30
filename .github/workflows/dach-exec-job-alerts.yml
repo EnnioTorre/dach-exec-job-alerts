@@ -49,6 +49,7 @@ jobs:
           TEST_MIN_RAW: "10"
           TEST_MIN_RANKED: "10"
           TEST_MIN_ACTIVE_SOURCES: "2"
+          TEST_MIN_RANKED_SOURCES: "2"
           TEST_AUTO_ENABLE_INSECURE_SSL_ON_FAIL: "false"
           SCRAPER_SSL_FALLBACK_INSECURE: "false"
 
