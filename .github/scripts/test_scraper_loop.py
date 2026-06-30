@@ -9,6 +9,8 @@ Validation checks:
 - jobs_ranked.json exists and has at least MIN_RANKED jobs
 - at least MIN_ACTIVE_SOURCES sources returned >0 listings
 - ranked output contains at least MIN_RANKED_SOURCES distinct sources
+- ranked output contains at least MIN_NON_KARRIERE_RANKED_SOURCES non-Karriere sources
+- ranked output contains at least MIN_NON_KARRIERE_RANKED_JOBS non-Karriere jobs
 - no parser crash
 
 Use env vars to tune:
@@ -17,6 +19,8 @@ Use env vars to tune:
 - TEST_MIN_RANKED (default 1)
 - TEST_MIN_ACTIVE_SOURCES (default 2)
 - TEST_MIN_RANKED_SOURCES (default 2)
+- TEST_MIN_NON_KARRIERE_RANKED_SOURCES (default 1)
+- TEST_MIN_NON_KARRIERE_RANKED_JOBS (default 1)
 - TEST_AUTO_ENABLE_INSECURE_SSL_ON_FAIL (default true)
 """
 
@@ -60,6 +64,8 @@ def validate(
     min_ranked: int,
     min_active_sources: int,
     min_ranked_sources: int,
+    min_non_karriere_ranked_sources: int,
+    min_non_karriere_ranked_jobs: int,
 ) -> tuple[bool, str]:
     if not RAW.exists():
         return False, "missing /tmp/jobs/jobs_raw.json"
@@ -78,6 +84,12 @@ def validate(
         for j in ranked_jobs
         if j.get("source_name")
     }
+    non_karriere_ranked_sources = {
+        s for s in ranked_sources if not s.lower().startswith("karriere_")
+    }
+    non_karriere_ranked_jobs = [
+        j for j in ranked_jobs if not (j.get("source_name", "").lower().startswith("karriere_"))
+    ]
 
     if len(raw_jobs) < min_raw:
         return False, f"raw jobs too low: {len(raw_jobs)} < {min_raw}"
@@ -90,10 +102,22 @@ def validate(
             f"ranked source diversity too low: {len(ranked_sources)} < "
             f"{min_ranked_sources}"
         )
+    if len(non_karriere_ranked_sources) < min_non_karriere_ranked_sources:
+        return False, (
+            f"non-karriere ranked source coverage too low: "
+            f"{len(non_karriere_ranked_sources)} < {min_non_karriere_ranked_sources}"
+        )
+    if len(non_karriere_ranked_jobs) < min_non_karriere_ranked_jobs:
+        return False, (
+            f"non-karriere ranked jobs too low: "
+            f"{len(non_karriere_ranked_jobs)} < {min_non_karriere_ranked_jobs}"
+        )
 
     return True, (
         f"valid result: raw={len(raw_jobs)} ranked={len(ranked_jobs)} "
-        f"active_sources={active_sources} ranked_sources={len(ranked_sources)}"
+        f"active_sources={active_sources} ranked_sources={len(ranked_sources)} "
+        f"non_karriere_ranked_sources={len(non_karriere_ranked_sources)} "
+        f"non_karriere_ranked_jobs={len(non_karriere_ranked_jobs)}"
     )
 
 
@@ -103,6 +127,8 @@ def main() -> int:
     min_ranked = int(os.getenv("TEST_MIN_RANKED", "1"))
     min_active_sources = int(os.getenv("TEST_MIN_ACTIVE_SOURCES", "2"))
     min_ranked_sources = int(os.getenv("TEST_MIN_RANKED_SOURCES", "2"))
+    min_non_karriere_ranked_sources = int(os.getenv("TEST_MIN_NON_KARRIERE_RANKED_SOURCES", "1"))
+    min_non_karriere_ranked_jobs = int(os.getenv("TEST_MIN_NON_KARRIERE_RANKED_JOBS", "1"))
     auto_insecure_on_ssl = os.getenv("TEST_AUTO_ENABLE_INSECURE_SSL_ON_FAIL", "true").lower() in {"1", "true", "yes"}
     insecure_enabled = os.getenv("SCRAPER_SSL_FALLBACK_INSECURE", "false").lower() in {"1", "true", "yes"}
 
@@ -134,7 +160,14 @@ def main() -> int:
             print(last_reason)
             continue
 
-        ok, reason = validate(min_raw, min_ranked, min_active_sources, min_ranked_sources)
+        ok, reason = validate(
+            min_raw,
+            min_ranked,
+            min_active_sources,
+            min_ranked_sources,
+            min_non_karriere_ranked_sources,
+            min_non_karriere_ranked_jobs,
+        )
         print(f"validation: {reason}")
         if ok:
             return 0

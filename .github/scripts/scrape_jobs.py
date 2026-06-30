@@ -19,6 +19,7 @@ import os
 import random
 import re
 import time
+import base64
 import xml.etree.ElementTree as ET
 from datetime import date
 from urllib.parse import urlencode, urlparse, parse_qs, unquote
@@ -354,8 +355,44 @@ def _extract_search_result_url(href: str) -> str:
     """Normalize search-engine result URLs, including redirect wrappers."""
     if not href:
         return ""
+
+    def _unwrap_absolute_url(raw_url: str) -> str:
+        parsed_abs = urlparse(raw_url)
+        host = parsed_abs.netloc.lower()
+        qs = parse_qs(parsed_abs.query)
+
+        # Google absolute redirect wrappers
+        if host.endswith("google.com") and parsed_abs.path.startswith("/url"):
+            target = qs.get("q", [""])[0] or qs.get("url", [""])[0]
+            return unquote(target) if target else raw_url
+
+        # DuckDuckGo redirect wrappers
+        if "duckduckgo.com" in host and parsed_abs.path.startswith("/l/"):
+            target = qs.get("uddg", [""])[0] or qs.get("rut", [""])[0]
+            return unquote(target) if target else raw_url
+
+        # Bing redirect wrappers; `u` often encodes the destination URL.
+        if host.endswith("bing.com") and parsed_abs.path.startswith("/ck/"):
+            u = qs.get("u", [""])[0]
+            if u:
+                # Common format: u=a1<base64url_without_padding>
+                if u.startswith("a1") and len(u) > 2:
+                    payload = u[2:]
+                    payload += "=" * (-len(payload) % 4)
+                    try:
+                        decoded = base64.urlsafe_b64decode(payload.encode("ascii")).decode("utf-8", "ignore")
+                        if decoded.startswith("http://") or decoded.startswith("https://"):
+                            return decoded
+                    except Exception:
+                        pass
+                if u.startswith("http://") or u.startswith("https://"):
+                    return unquote(u)
+
+        return raw_url
+
     if href.startswith("http://") or href.startswith("https://"):
-        return href
+        return _unwrap_absolute_url(href)
+
     if href.startswith("/"):
         parsed = urlparse(href)
         if parsed.path in {"/url", "/link"}:
