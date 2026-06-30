@@ -64,7 +64,7 @@ SOURCES = [
     # Reached via Google search proxy which returns public job-card snippets.
     {"name": "google_linkedin_at", "type": "google_proxy",
      "url": "https://www.google.com/search?" + urlencode({
-         "q": 'site:linkedin.com/jobs "Head of Engineering" OR "CTO" Austria',
+         "q": 'site:linkedin.com/jobs "Head of Engineering" OR "CTO" Austria OR Bolzano OR Bozen',
          "num": "20",
      }), "region": "AT"},
     {"name": "google_linkedin_de", "type": "google_proxy",
@@ -76,9 +76,16 @@ SOURCES = [
     # Google Jobs structured results — broad DACH sweep
     {"name": "google_jobs_at",    "type": "google_proxy",
      "url": "https://www.google.com/search?" + urlencode({
-         "q": '"Head of Engineering" OR "CTO" OR "Engineering Manager" jobs Austria',
+         "q": '"Head of Engineering" OR "CTO" OR "Engineering Manager" jobs Austria OR Bolzano OR Bozen',
          "num": "20",
      }), "region": "AT"},
+
+    # Bolzano/Bozen focused sweep (South Tyrol, frequent DACH overlap)
+    {"name": "google_jobs_bolzano", "type": "google_proxy",
+     "url": "https://www.google.com/search?" + urlencode({
+         "q": '"Head of Engineering" OR CTO OR "Engineering Manager" jobs Bolzano OR Bozen',
+         "num": "20",
+     }), "region": "IT"},
 ]
 
 # Rotate through a small pool of realistic browser UAs to reduce fingerprinting.
@@ -397,7 +404,7 @@ def enrich_from_company_page(job: dict) -> dict:
         out["company"] = job.get("company") or _extract_company_from_host(url)
 
     if not out.get("location"):
-        m_loc = re.search(r"\b(Vienna|Wien|Austria|Germany|Switzerland|Zurich|Zürich|Berlin|Munich|München|Graz|Linz|Salzburg)\b", page_text, re.I)
+        m_loc = re.search(r"\b(Vienna|Wien|Austria|Germany|Switzerland|Zurich|Zürich|Berlin|Munich|München|Graz|Linz|Salzburg|Bolzano|Bozen|South\s*Tyrol|Südtirol)\b", page_text, re.I)
         if m_loc:
             out["location"] = m_loc.group(1)
 
@@ -538,6 +545,7 @@ PARSER_MAP = {
     "google_linkedin_at":  parse_google_jobs,
     "google_linkedin_de":  parse_google_jobs,
     "google_jobs_at":      parse_google_jobs,
+    "google_jobs_bolzano": parse_google_jobs,
 }
 
 

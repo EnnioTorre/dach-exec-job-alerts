@@ -46,6 +46,7 @@ _VIENNA = ["vienna", "wien", "1010", "1020", "1030", "1040", "1050",
            "1060", "1070", "1080", "1090", "1100", "1110", "1120",
            "1130", "1140", "1150", "1160", "1170", "1180", "1190",
            "1200", "1210", "1220", "1230"]
+_BOLZANO = ["bolzano", "bozen", "south tyrol", "sudtirol", "südtirol"]
 _AUSTRIA = ["austria", "österreich", "graz", "linz", "salzburg",
             "innsbruck", "klagenfurt", "villach", ".at"]
 _SWITZERLAND = ["switzerland", "schweiz", "zürich", "zurich", "basel",
@@ -66,6 +67,9 @@ def location_score(location: str) -> float:
     loc = location.lower()
     if any(k in loc for k in _VIENNA):
         return 5.0
+    if any(k in loc for k in _BOLZANO):
+        # Bolzano/Bozen is near-Austria and fits DACH-adjacent exec searches.
+        return 4.5
     if any(k in loc for k in _AUSTRIA):
         return 4.0
     if any(k in loc for k in _SWITZERLAND):
