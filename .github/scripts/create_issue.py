@@ -23,12 +23,22 @@ def load_data() -> dict:
     raise FileNotFoundError("No job data file found in /tmp/jobs/")
 
 
-def ensure_label(label: str, color: str = "0075ca") -> None:
-    """Create the label if it doesn't exist; silently ignore errors."""
-    subprocess.run(
+def ensure_label(label: str, color: str = "0075ca") -> bool:
+    """Create the label if it doesn't exist; return True if successful or exists."""
+    result = subprocess.run(
         ["gh", "label", "create", label, "--color", color],
         capture_output=True,
+        text=True,
     )
+    # Succeed if exit code 0, or if the label already exists (common error is "already exists")
+    if result.returncode == 0:
+        return True
+    if "already exists" in result.stderr.lower():
+        return True
+    # Label creation failed; log it for debugging
+    error_msg = result.stderr.strip() if result.stderr else "unknown error"
+    print(f"Warning: label creation failed ({error_msg}); issue will be created without labels", file=sys.stderr)
+    return False
 
 
 def format_body(data: dict) -> str:
@@ -120,12 +130,23 @@ def format_body(data: dict) -> str:
 
 def create_issue(title: str, body: str, labels: list[str]) -> bool:
     cmd = ["gh", "issue", "create", "--title", title, "--body", body]
+    # Only add labels if they were successfully ensured
     for label in labels:
         cmd += ["--label", label]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode == 0:
         print(f"Issue created: {result.stdout.strip()}")
         return True
+    
+    # If label error, retry without labels
+    if "label" in result.stderr.lower() and "not found" in result.stderr.lower():
+        print(f"Label not found; retrying without labels...", file=sys.stderr)
+        cmd = ["gh", "issue", "create", "--title", title, "--body", body]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode == 0:
+            print(f"Issue created (without labels): {result.stdout.strip()}")
+            return True
+    
     print(f"gh issue create failed:\n{result.stderr.strip()}", file=sys.stderr)
     return False
 
@@ -135,7 +156,8 @@ def main() -> None:
     today = data.get("date", str(date.today()))
     jobs = data.get("jobs", [])
 
-    ensure_label("job-digest", "0075ca")
+    # Try to ensure the label exists, but don't fail if it doesn't
+    label_created = ensure_label("job-digest", "0075ca")
 
     if not jobs:
         title = f"[DACH Jobs] No Listings Retrieved — {today}"
@@ -151,7 +173,9 @@ def main() -> None:
         title = f"[DACH Jobs] Top Exec Roles ({marker}) — {today}"
         body = format_body(data)
 
-    success = create_issue(title, body, ["job-digest"])
+    # Pass labels only if they were successfully created
+    labels = ["job-digest"] if label_created else []
+    success = create_issue(title, body, labels)
     sys.exit(0 if success else 1)
 
 
