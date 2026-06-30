@@ -21,6 +21,7 @@ from scrape_jobs import (
     fetch,
     extract_jsonld_jobs,
     normalize_jsonld,
+    enrich_from_company_page,
     PARSER_MAP,
     parse_rss,
     parse_stepstone,
@@ -68,6 +69,11 @@ def scrape_url(url: str, name: str) -> list[dict]:
     if parser:
         jobs = parser(html, name)
         print(f"  HTML parser ({parser.__name__}): {len(jobs)} jobs")
+
+        # For google/linkedin discovery sources, enrich by scraping destination pages.
+        if parser.__name__ == "parse_google_jobs":
+            for row in jobs[:8]:
+                row.update(enrich_from_company_page(row))
     else:
         from bs4 import BeautifulSoup
         soup = BeautifulSoup(html, "html.parser")

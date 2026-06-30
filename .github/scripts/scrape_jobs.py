@@ -313,7 +313,99 @@ def parse_google_jobs(html: str, source_name: str) -> list[dict]:
             "salary_text": "",
             "language_hint": "en",
         })
+
+    # Enrich google-discovered entries by scraping destination career pages
+    # directly (best effort, capped to keep runtime bounded).
+    for row in results[:8]:
+        enriched = enrich_from_company_page(row)
+        row.update(enriched)
     return results
+
+
+def _clean_text(s: str) -> str:
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def _infer_language_hint(text: str) -> str:
+    t = text.lower()
+    if re.search(r"\bdeutsch\b|\bgerman\s+required\b|\bdeutschkenntnisse\b", t):
+        return "de"
+    return "en"
+
+
+def _extract_salary(text: str) -> str:
+    # Capture common EUR/CHF salary snippets from page text.
+    m = re.search(r"((?:EUR|CHF|€)\s?[\d.,]{4,}(?:\s?[-–]\s?(?:EUR|CHF|€)?\s?[\d.,]{4,})?)", text, re.I)
+    return _clean_text(m.group(1)) if m else ""
+
+
+def _extract_company_from_host(url: str) -> str:
+    from urllib.parse import urlparse
+    host = urlparse(url).netloc.lower()
+    host = re.sub(r"^www\.", "", host)
+    base = host.split(".")[0]
+    return base.replace("-", " ").replace("_", " ").title()
+
+
+def enrich_from_company_page(job: dict) -> dict:
+    """
+    Best-effort enrichment from the destination page.
+    - If a LinkedIn URL is present, try to pivot to company career URL hints on page/snippet.
+    - Fetch destination page and extract minimal structured fields.
+    Returns only fields that should override existing values.
+    """
+    url = job.get("application_url") or job.get("source_url") or ""
+    if not url:
+        return {}
+
+    # Keep Linkedin direct URLs as source reference, but enrich from whatever page we can fetch.
+    html = fetch(url, retries=1)
+    if not html:
+        return {}
+
+    soup = BeautifulSoup(html, "html.parser")
+    page_text = _clean_text(soup.get_text(" ", strip=True))
+
+    out: dict[str, str] = {}
+
+    # 1) Try JSON-LD JobPosting on destination
+    jsonld_jobs = [normalize_jsonld(j, job.get("source_name", "")) for j in extract_jsonld_jobs(html)]
+    if jsonld_jobs:
+        best = jsonld_jobs[0]
+        if best.get("title"):
+            out["title"] = best["title"]
+        if best.get("company"):
+            out["company"] = best["company"]
+        if best.get("location"):
+            out["location"] = best["location"]
+        if best.get("publish_date"):
+            out["publish_date"] = best["publish_date"]
+        if best.get("salary_text"):
+            out["salary_text"] = best["salary_text"]
+        if best.get("application_url"):
+            out["application_url"] = best["application_url"]
+
+    # 2) Heuristic fallbacks when JSON-LD is missing
+    if not out.get("title"):
+        og_title = soup.find("meta", attrs={"property": "og:title"})
+        if og_title and og_title.get("content"):
+            out["title"] = _clean_text(og_title["content"])
+        elif soup.title and soup.title.string:
+            out["title"] = _clean_text(soup.title.string)
+
+    if not out.get("company"):
+        out["company"] = job.get("company") or _extract_company_from_host(url)
+
+    if not out.get("location"):
+        m_loc = re.search(r"\b(Vienna|Wien|Austria|Germany|Switzerland|Zurich|Zürich|Berlin|Munich|München|Graz|Linz|Salzburg)\b", page_text, re.I)
+        if m_loc:
+            out["location"] = m_loc.group(1)
+
+    if not out.get("salary_text"):
+        out["salary_text"] = _extract_salary(page_text)
+
+    out["language_hint"] = _infer_language_hint(page_text)
+    return out
 
 
 # ---------------------------------------------------------------------------
