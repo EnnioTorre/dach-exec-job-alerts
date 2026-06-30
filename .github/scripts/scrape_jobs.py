@@ -44,22 +44,13 @@ except Exception:  # pragma: no cover - optional dependency
 #                    (used as bot-safe proxy for LinkedIn and closed career pages)
 # ---------------------------------------------------------------------------
 SOURCES = [
-    # Stepstone direct pages often time out in CI; use search proxies for resilience.
-    {"name": "stepstone_at_cto",  "type": "search_proxy",
-     "url": "https://www.bing.com/search?" + urlencode({
-         "q": 'site:stepstone.at/jobs "CTO" OR "Chief Technology Officer" Austria',
-         "count": "20",
-     }), "region": "AT"},
-    {"name": "stepstone_at_hoe",  "type": "search_proxy",
-     "url": "https://www.bing.com/search?" + urlencode({
-         "q": 'site:stepstone.at/jobs "Head of Engineering" OR "Platform Engineering Manager" Austria',
-         "count": "20",
-     }), "region": "AT"},
-    {"name": "stepstone_de_hoe",  "type": "search_proxy",
-     "url": "https://www.bing.com/search?" + urlencode({
-         "q": 'site:stepstone.de/jobs "Head of Engineering" OR "Director of Engineering" Germany',
-         "count": "20",
-     }), "region": "DE"},
+    # Stepstone direct pages often work better than search proxies when they load.
+    {"name": "stepstone_at_cto",  "type": "html",
+     "url": "https://www.stepstone.at/jobs/cto",                "region": "AT"},
+    {"name": "stepstone_at_hoe",  "type": "html",
+     "url": "https://www.stepstone.at/jobs/head-of-engineering", "region": "AT"},
+    {"name": "stepstone_de_hoe",  "type": "html",
+     "url": "https://www.stepstone.de/jobs/head-of-engineering", "region": "DE"},
 
     # Karriere.at — Austria's primary job board, light protection
     {"name": "karriere_at_cto",   "type": "html",
@@ -76,16 +67,13 @@ SOURCES = [
     # Indeed RSS returns 403 in CI; use proxy discovery instead.
     {"name": "indeed_at_rss",     "type": "search_proxy",
      "url": "https://www.bing.com/search?" + urlencode({
-         "q": 'site:indeed.de OR site:indeed.com "Head of Engineering" OR "Engineering Manager" Austria',
+         "q": 'site:indeed.com/viewjob "Engineering Manager" Austria OR site:indeed.de/viewjob "Engineering Manager" Austria',
          "count": "20",
      }), "region": "AT"},
 
-    # jobs.ch direct HTML structure is volatile; use proxy discovery as primary.
-    {"name": "jobs_ch",           "type": "search_proxy",
-     "url": "https://www.bing.com/search?" + urlencode({
-         "q": 'site:jobs.ch "Head of Engineering" OR "Platform Engineer" OR "Cloud Engineering"',
-         "count": "20",
-     }), "region": "CH"},
+    # jobs.ch direct HTML is usually better than SERP snippets when accessible.
+    {"name": "jobs_ch",           "type": "html",
+     "url": "https://www.jobs.ch/en/vacancies/?term=head+of+engineering", "region": "CH"},
 
     # Deterministic public JSON feed fallback to preserve non-Karriere diversity.
     {"name": "arbeitnow_dach",    "type": "json_api",
@@ -93,58 +81,61 @@ SOURCES = [
 
     # LinkedIn is NOT scraped directly (JS wall + ToS prohibition).
     # Reached via search-engine proxies which return public snippets.
+    # Each source targets a distinct title × region pair to avoid redundancy.
     {"name": "google_linkedin_at", "type": "google_proxy",
      "url": "https://www.google.com/search?" + urlencode({
-         "q": 'site:linkedin.com/jobs "Head of Engineering" OR "CTO" Austria OR Bolzano OR Bozen',
+         "q": 'site:linkedin.com/jobs/view "Head of Engineering" OR "VP Engineering" Austria -head.com -wikipedia',
          "num": "20",
      }), "region": "AT"},
     {"name": "google_linkedin_de", "type": "google_proxy",
      "url": "https://www.google.com/search?" + urlencode({
-         "q": 'site:linkedin.com/jobs "Director of Engineering" OR "VP Engineering" Germany',
+         "q": 'site:linkedin.com/jobs/view "CTO" OR "Chief Technology Officer" Germany -wikipedia -support.google.com',
          "num": "20",
      }), "region": "DE"},
 
     # Bing/DuckDuckGo proxies improve resilience when Google yields no extractable cards.
+    # Bing/DDG: each covers a different title × region combo from the Google sources above.
     {"name": "bing_linkedin_at", "type": "search_proxy",
      "url": "https://www.bing.com/search?" + urlencode({
-         "q": 'site:linkedin.com/jobs "Head of Engineering" OR CTO Austria',
+         "q": 'site:linkedin.com/jobs/view "Director of Engineering" OR "Engineering Manager" Austria',
          "count": "20",
      }), "region": "AT"},
     {"name": "bing_linkedin_de", "type": "search_proxy",
      "url": "https://www.bing.com/search?" + urlencode({
-         "q": 'site:linkedin.com/jobs "Platform Engineering Manager" OR "Director of Engineering" Germany',
+         "q": 'site:linkedin.com/jobs/view "Head of Engineering" OR "VP Engineering" Germany',
          "count": "20",
      }), "region": "DE"},
     {"name": "ddg_linkedin_dach", "type": "search_proxy",
      "url": "https://duckduckgo.com/html/?" + urlencode({
-         "q": 'site:linkedin.com/jobs "Head of Engineering" OR "Cloud Engineering Manager" DACH',
-     }), "region": "DACH"},
+         "q": 'site:linkedin.com/jobs/view "Engineering Manager" OR "Director of Engineering" Switzerland -wikipedia',
+     }), "region": "CH"},
 
     # Proxies for sources that fail direct fetch in CI.
     {"name": "bing_stepstone_dach", "type": "search_proxy",
      "url": "https://www.bing.com/search?" + urlencode({
-         "q": 'site:stepstone.at/jobs OR site:stepstone.de/jobs "Head of Engineering" OR "Platform Engineer"',
+         "q": 'site:stepstone.at/jobs/ OR site:stepstone.de/jobs/ "CTO" OR "VP Engineering" DACH',
          "count": "20",
      }), "region": "DACH"},
     {"name": "bing_indeed_dach", "type": "search_proxy",
      "url": "https://www.bing.com/search?" + urlencode({
-         "q": 'site:indeed.com OR site:indeed.de "Engineering Manager" OR "Head of Engineering"',
+         "q": 'site:indeed.com/viewjob OR site:indeed.de/viewjob "Director of Engineering" DACH',
          "count": "20",
      }), "region": "DACH"},
 
     # Google Jobs structured results — broad DACH sweep
+    # Google Jobs structured results — distinct title from google_linkedin_at
     {"name": "google_jobs_at",    "type": "google_proxy",
      "url": "https://www.google.com/search?" + urlencode({
-         "q": '"Head of Engineering" OR "CTO" OR "Engineering Manager" jobs Austria OR Bolzano OR Bozen',
+         "q": 'site:linkedin.com/jobs/view OR site:stepstone.at/jobs/ OR site:jobs.ch/en/vacancies/detail/ "Director of Engineering" OR "Engineering Manager" Austria -head.com -wikipedia',
          "num": "20",
      }), "region": "AT"},
 
-    # Bolzano/Bozen focused sweep (South Tyrol, frequent DACH overlap)
+    # Switzerland + South Tyrol sweep — fills CH gap not covered by other sources
     {"name": "google_jobs_bolzano", "type": "google_proxy",
      "url": "https://www.google.com/search?" + urlencode({
-         "q": '"Head of Engineering" OR CTO OR "Engineering Manager" jobs Bolzano OR Bozen',
+         "q": 'site:linkedin.com/jobs/view OR site:jobs.ch/en/vacancies/detail/ "VP Engineering" OR "Head of Engineering" Switzerland OR Bolzano OR Bozen -wikipedia',
          "num": "20",
-     }), "region": "IT"},
+     }), "region": "CH"},
 ]
 
 # Alternate URLs used when a source fetch fails or repeatedly returns no content.
@@ -170,21 +161,31 @@ SOURCE_URL_FALLBACKS: dict[str, list[str]] = {
         "https://www.bing.com/search?" + urlencode({"q": 'site:jobs.ch "Head of Engineering"', "count": "20"}),
     ],
     "google_linkedin_at": [
-        "https://www.bing.com/search?" + urlencode({"q": 'site:linkedin.com/jobs "Head of Engineering" Austria', "count": "20"}),
-        "https://www.bing.com/search?" + urlencode({"q": 'site:linkedin.com/jobs "Engineering Manager" Austria', "count": "20"}),
+        "https://www.google.at/search?" + urlencode({"q": 'site:linkedin.com/jobs/view "Head of Engineering" Austria OR "VP Engineering" Austria', "num": "20"}),
+        "https://www.google.de/search?" + urlencode({"q": 'site:linkedin.com/jobs/view "Head of Engineering" Austria OR "VP Engineering" Austria', "num": "20"}),
+        "https://www.bing.com/search?" + urlencode({"q": 'site:linkedin.com/jobs/view "Head of Engineering" Austria', "count": "20"}),
+        "https://www.bing.com/search?" + urlencode({"q": 'site:linkedin.com/jobs/view "VP Engineering" Austria', "count": "20"}),
     ],
     "google_linkedin_de": [
-        "https://www.bing.com/search?" + urlencode({"q": 'site:linkedin.com/jobs "Director of Engineering" Germany', "count": "20"}),
-        "https://www.bing.com/search?" + urlencode({"q": 'site:linkedin.com/jobs "VP Engineering" Germany', "count": "20"}),
-        "https://www.bing.com/search?" + urlencode({"q": 'site:linkedin.com/jobs "Engineering Manager" Germany', "count": "20"}),
+        "https://www.google.de/search?" + urlencode({"q": 'site:linkedin.com/jobs/view "CTO" Germany OR "Chief Technology Officer" Germany', "num": "20"}),
+        "https://www.google.at/search?" + urlencode({"q": 'site:linkedin.com/jobs/view "CTO" Germany OR "Chief Technology Officer" Germany', "num": "20"}),
+        "https://www.bing.com/search?" + urlencode({"q": 'site:linkedin.com/jobs/view "CTO" Germany', "count": "20"}),
+        "https://www.bing.com/search?" + urlencode({"q": 'site:linkedin.com/jobs/view "Chief Technology Officer" Germany', "count": "20"}),
+        "https://www.bing.com/search?" + urlencode({"q": 'site:linkedin.com/jobs/view "VP Engineering" Germany', "count": "20"}),
     ],
     "ddg_linkedin_dach": [
-        "https://www.bing.com/search?" + urlencode({"q": 'site:linkedin.com/jobs "Engineering Manager" DACH', "count": "20"}),
+        "https://www.bing.com/search?" + urlencode({"q": 'site:linkedin.com/jobs/view "Engineering Manager" Switzerland', "count": "20"}),
+        "https://www.bing.com/search?" + urlencode({"q": 'site:linkedin.com/jobs/view "Director of Engineering" Switzerland', "count": "20"}),
     ],
     "google_jobs_at": [
-        "https://www.bing.com/search?" + urlencode({"q": '"Head of Engineering" jobs Austria', "count": "20"}),
+        "https://www.google.at/search?" + urlencode({"q": 'site:linkedin.com/jobs/view OR site:stepstone.at/jobs/ OR site:jobs.ch/en/vacancies/detail/ "Director of Engineering" OR "Engineering Manager" Austria', "num": "20"}),
+        "https://www.google.de/search?" + urlencode({"q": 'site:linkedin.com/jobs/view OR site:stepstone.at/jobs/ OR site:jobs.ch/en/vacancies/detail/ "Director of Engineering" OR "Engineering Manager" Austria', "num": "20"}),
+        "https://www.bing.com/search?" + urlencode({"q": '"Director of Engineering" OR "Engineering Manager" jobs Austria', "count": "20"}),
     ],
     "google_jobs_bolzano": [
+        "https://www.google.de/search?" + urlencode({"q": 'site:linkedin.com/jobs/view OR site:jobs.ch/en/vacancies/detail/ "VP Engineering" OR "Head of Engineering" Switzerland OR Bolzano OR Bozen', "num": "20"}),
+        "https://www.google.at/search?" + urlencode({"q": 'site:linkedin.com/jobs/view OR site:jobs.ch/en/vacancies/detail/ "VP Engineering" OR "Head of Engineering" Switzerland OR Bolzano OR Bozen', "num": "20"}),
+        "https://www.bing.com/search?" + urlencode({"q": '"VP Engineering" OR "Head of Engineering" jobs Switzerland', "count": "20"}),
         "https://www.bing.com/search?" + urlencode({"q": '"Head of Engineering" jobs Bolzano', "count": "20"}),
     ],
 }
@@ -248,6 +249,13 @@ def fetch(url: str, retries: int = 3) -> str | None:
     session = requests.Session()
     headers = dict(_BASE_HEADERS)
     headers["User-Agent"] = random.choice(_USER_AGENTS)
+    # Optional: reuse browser Google cookie to reduce consent/challenge walls.
+    parsed_host = urlparse(url).netloc.lower()
+    if "google." in parsed_host:
+        google_cookie = (os.getenv("SCRAPER_GOOGLE_COOKIE") or "").strip()
+        if google_cookie:
+            headers["Cookie"] = google_cookie
+        headers["Referer"] = "https://www.google.com/"
     session.headers.update(headers)
     verify_opt = _ssl_verify_option()
 
@@ -299,6 +307,215 @@ def _to_bing_rss_url(url: str) -> str:
 def _looks_like_xml(text: str) -> bool:
     t = (text or "").lstrip().lower()
     return t.startswith("<?xml") or t.startswith("<rss") or t.startswith("<feed")
+
+
+def _search_query_from_url(url: str) -> str:
+    """Extract search query parameter from a search URL."""
+    try:
+        qs = parse_qs(urlparse(url).query)
+        return (qs.get("q", [""])[0] or "").strip()
+    except Exception:
+        return ""
+
+
+def _search_num_from_url(url: str, default: int = 20) -> int:
+    """Extract desired result count from search URL."""
+    try:
+        qs = parse_qs(urlparse(url).query)
+        raw = (qs.get("num", [""])[0] or qs.get("count", [""])[0] or "").strip()
+        if raw.isdigit():
+            return max(1, min(int(raw), 50))
+    except Exception:
+        pass
+    return default
+
+
+def _parse_serp_provider_results(payload: dict, source_name: str) -> list[dict]:
+    """Normalize organic results from SerpAPI/Zenserp into job dict rows."""
+    rows: list[dict] = []
+
+    # SerpAPI: organic_results, Zenserp: organic
+    candidates = payload.get("organic_results")
+    if not isinstance(candidates, list):
+        candidates = payload.get("organic")
+    if not isinstance(candidates, list):
+        return rows
+
+    for item in candidates:
+        if not isinstance(item, dict):
+            continue
+
+        title = (item.get("title") or "").strip()
+        link = (item.get("link") or item.get("url") or "").strip()
+        snippet = (item.get("snippet") or item.get("description") or "").strip()
+
+        if not title or not link:
+            continue
+        if not _expected_job_url(link, source_name):
+            continue
+
+        m_at = re.search(r"(?:at|bei|@)\s+([A-Z][\w\s&.]+?)(?:\s*[·|\-,]|$)", snippet)
+        company = m_at.group(1).strip() if m_at else ""
+
+        rows.append({
+            "title": title,
+            "company": company,
+            "location": "",
+            "source_name": source_name,
+            "source_url": link,
+            "application_url": link,
+            "publish_date": "",
+            "salary_text": "",
+            "language_hint": "en",
+        })
+
+    # De-dup by destination URL
+    seen: set[str] = set()
+    uniq: list[dict] = []
+    for r in rows:
+        k = (r.get("application_url") or r.get("source_url") or "").strip().lower()
+        if k and k not in seen:
+            seen.add(k)
+            uniq.append(r)
+    return uniq
+
+
+def _parse_searxng_results(payload: dict, source_name: str) -> list[dict]:
+    """Normalize SearXNG JSON results into job dict rows."""
+    rows: list[dict] = []
+    candidates = payload.get("results")
+    if not isinstance(candidates, list):
+        return rows
+
+    for item in candidates:
+        if not isinstance(item, dict):
+            continue
+
+        title = (item.get("title") or "").strip()
+        link = (item.get("url") or item.get("link") or "").strip()
+        snippet = (item.get("content") or item.get("snippet") or "").strip()
+
+        if not title or not link:
+            continue
+        if not _expected_job_url(link, source_name):
+            continue
+
+        m_at = re.search(r"(?:at|bei|@)\s+([A-Z][\w\s&.]+?)(?:\s*[·|\-,]|$)", snippet)
+        company = m_at.group(1).strip() if m_at else ""
+
+        rows.append({
+            "title": title,
+            "company": company,
+            "location": "",
+            "source_name": source_name,
+            "source_url": link,
+            "application_url": link,
+            "publish_date": "",
+            "salary_text": "",
+            "language_hint": "en",
+        })
+
+    seen: set[str] = set()
+    uniq: list[dict] = []
+    for r in rows:
+        k = (r.get("application_url") or r.get("source_url") or "").strip().lower()
+        if k and k not in seen:
+            seen.add(k)
+            uniq.append(r)
+    return uniq
+
+
+def _fetch_google_proxy_via_provider(source_url: str, source_name: str) -> list[dict]:
+    """
+    Optional provider-backed Google fetch for anti-bot resilience.
+
+    Env vars:
+      - SCRAPER_SEARXNG_URL
+      - SCRAPER_SEARXNG_KEY
+      - SCRAPER_SERPAPI_KEY
+      - SCRAPER_ZENSERP_KEY
+    """
+    query = _search_query_from_url(source_url)
+    if not query:
+        return []
+    num = _search_num_from_url(source_url, default=20)
+
+    searxng_url = (os.getenv("SCRAPER_SEARXNG_URL") or "").strip().rstrip("/")
+    searxng_key = (os.getenv("SCRAPER_SEARXNG_KEY") or "").strip()
+    if searxng_url:
+        try:
+            headers: dict[str, str] = {"Accept": "application/json"}
+            if searxng_key:
+                headers["Authorization"] = f"Bearer {searxng_key}"
+            params = {
+                "q": query,
+                "format": "json",
+                "language": "de,en",
+                "safesearch": "0",
+                "pageno": "1",
+            }
+            verify_opt = _ssl_verify_option()
+            resp = requests.get(f"{searxng_url}/search", headers=headers, params=params, timeout=30, verify=verify_opt)
+            if resp.status_code == 200:
+                jobs = _parse_searxng_results(resp.json(), source_name)
+                if jobs:
+                    # Respect per-source requested cap.
+                    jobs = jobs[:num]
+                    print(f"  SearXNG: {len(jobs)} jobs")
+                    return jobs
+            else:
+                print(f"  SearXNG HTTP {resp.status_code} for {source_name}")
+        except requests.RequestException as exc:
+            print(f"  SearXNG error for {source_name}: {exc}")
+        except ValueError:
+            pass
+
+    serpapi_key = (os.getenv("SCRAPER_SERPAPI_KEY") or "").strip()
+    if serpapi_key:
+        try:
+            params = {
+                "engine": "google",
+                "q": query,
+                "num": str(num),
+                "api_key": serpapi_key,
+            }
+            verify_opt = _ssl_verify_option()
+            resp = requests.get("https://serpapi.com/search.json", params=params, timeout=30, verify=verify_opt)
+            if resp.status_code == 200:
+                jobs = _parse_serp_provider_results(resp.json(), source_name)
+                if jobs:
+                    print(f"  SerpAPI: {len(jobs)} jobs")
+                    return jobs
+            else:
+                print(f"  SerpAPI HTTP {resp.status_code} for {source_name}")
+        except requests.RequestException as exc:
+            print(f"  SerpAPI error for {source_name}: {exc}")
+        except ValueError:
+            pass
+
+    zenserp_key = (os.getenv("SCRAPER_ZENSERP_KEY") or "").strip()
+    if zenserp_key:
+        try:
+            headers = {"apikey": zenserp_key, "Accept": "application/json"}
+            params = {
+                "q": query,
+                "num": str(num),
+            }
+            verify_opt = _ssl_verify_option()
+            resp = requests.get("https://app.zenserp.com/api/v2/search", headers=headers, params=params, timeout=30, verify=verify_opt)
+            if resp.status_code == 200:
+                jobs = _parse_serp_provider_results(resp.json(), source_name)
+                if jobs:
+                    print(f"  Zenserp: {len(jobs)} jobs")
+                    return jobs
+            else:
+                print(f"  Zenserp HTTP {resp.status_code} for {source_name}")
+        except requests.RequestException as exc:
+            print(f"  Zenserp error for {source_name}: {exc}")
+        except ValueError:
+            pass
+
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -646,6 +863,39 @@ def _extract_search_result_url(href: str) -> str:
     return ""
 
 
+def _expected_job_url(url: str, source_name: str) -> bool:
+    parsed = urlparse(url)
+    host = parsed.netloc.lower()
+    path = parsed.path.lower()
+    query = parsed.query.lower()
+
+    if not url:
+        return False
+
+    if any(blocked in host for blocked in ("youtube.com", "wikipedia.org", "google.com", "bing.com", "duckduckgo.com")):
+        return False
+
+    if "linkedin" in source_name:
+        return "linkedin.com" in host and (
+            "/jobs/view/" in path or "/jobs/search/" in path or "currentjobid=" in query
+        )
+
+    if "stepstone" in source_name:
+        return "stepstone." in host and "/jobs/" in path
+
+    if "indeed" in source_name:
+        return "indeed." in host and (
+            "/viewjob" in path or "/job" in path or "/rc/clk" in path
+        )
+
+    if source_name == "jobs_ch":
+        return "jobs.ch" in host and (
+            "/vacanc" in path or "/job" in path or "/stellen" in path or "/career" in path
+        )
+
+    return any(hint in path for hint in ("/jobs/", "/job/", "/careers", "/career", "/vacancies", "/position", "/stellen", "/viewjob", "/rc/clk"))
+
+
 def parse_google_jobs(html: str, source_name: str) -> list[dict]:
     """
     Extract job listings from Google search results.
@@ -656,7 +906,9 @@ def parse_google_jobs(html: str, source_name: str) -> list[dict]:
     # First try JSON-LD (Google often embeds JobPosting structured data in SERP)
     jobs = [normalize_jsonld(j, source_name) for j in extract_jsonld_jobs(html)]
     if jobs:
-        return jobs
+        jobs = [row for row in jobs if _expected_job_url((row.get("application_url") or row.get("source_url") or ""), source_name)]
+        if jobs:
+            return jobs
 
     # Fallback: parse organic result titles + URLs from common SERP layouts.
     soup = BeautifulSoup(html, "html.parser")
@@ -665,6 +917,8 @@ def parse_google_jobs(html: str, source_name: str) -> list[dict]:
     def _append_result(title: str, href: str, snippet: str) -> None:
         url = _extract_search_result_url(href)
         if not url:
+            return
+        if not _expected_job_url(url, source_name):
             return
         title = title.strip()
         if not title:
@@ -740,6 +994,8 @@ def parse_google_jobs(html: str, source_name: str) -> list[dict]:
             seen_urls.add(key)
             uniq.append(row)
     results = uniq
+
+    results = [row for row in results if _expected_job_url((row.get("application_url") or row.get("source_url") or ""), source_name)]
 
     # Enrich google-discovered entries by scraping destination career pages
     # directly (best effort, capped to keep runtime bounded).
@@ -1000,6 +1256,16 @@ def main() -> None:
 
         content = None
 
+        # Optional provider APIs (SerpAPI/Zenserp) for Google proxies.
+        # This avoids direct Google anti-bot limits in CI environments.
+        if src_type == "google_proxy":
+            provider_jobs = _fetch_google_proxy_via_provider(url, name)
+            if provider_jobs:
+                jobs = [j for j in provider_jobs if j.get("title")]
+                stats[name] = len(jobs)
+                all_jobs.extend(jobs)
+                continue
+
         # Bing proxy pages are more reliable in RSS mode than HTML mode.
         if src_type in {"search_proxy", "google_proxy"} and "bing.com/search" in url:
             content = fetch(_to_bing_rss_url(url), retries=2)
@@ -1092,11 +1358,25 @@ def main() -> None:
                 if len(jobs) >= min_real_per_source:
                     break
 
-        if enable_backfill and len(jobs) < min_per_source:
+        # Keep proxy-source quality strict: do not inject fallback rows into
+        # Google/Bing/DDG buckets, otherwise off-domain URLs can leak in.
+        if enable_backfill and src_type not in {"google_proxy", "search_proxy"} and len(jobs) < min_per_source:
             if ar_now_cache is None:
                 ar_content = fetch("https://www.arbeitnow.com/api/job-board-api", retries=2)
                 ar_now_cache = parse_json_jobs(ar_content, "arbeitnow_dach") if ar_content else []
             jobs = backfill_source_jobs(name, src.get("region", "DACH"), jobs, ar_now_cache or [], min_per_source)
+
+        # Final URL-quality gate for proxy sources to suppress false positives
+        # before they reach ranking (for example generic brand/wiki pages).
+        if src_type in {"google_proxy", "search_proxy"}:
+            before_quality_gate = len(jobs)
+            jobs = [
+                j for j in jobs
+                if _expected_job_url((j.get("application_url") or j.get("source_url") or ""), name)
+            ]
+            dropped = before_quality_gate - len(jobs)
+            if dropped > 0:
+                print(f"  URL quality gate dropped {dropped} rows for {name}")
 
         stats[name] = len(jobs)
         all_jobs.extend(jobs)
@@ -1111,12 +1391,29 @@ def main() -> None:
         )
         raise SystemExit(2)
 
-    # Deduplicate by title+company before the output cap so triplication
-    # in site-specific parsers doesn't inflate counts or waste the cap quota.
+    def _source_family(job: dict) -> str:
+        url = (job.get("application_url") or job.get("source_url") or "").lower()
+        host = urlparse(url).netloc.lower()
+        if "karriere.at" in host:
+            return "karriere.at"
+        if "stepstone." in host:
+            return "stepstone"
+        if "linkedin.com" in host:
+            return "linkedin"
+        if "indeed." in host:
+            return "indeed"
+        if "jobs.ch" in host:
+            return "jobs.ch"
+        if "arbeitnow.com" in host:
+            return "arbeitnow"
+        return host or "unknown"
+
+    # Deduplicate exact source-family jobs so different job boards can keep
+    # distinct copies of the same role while still collapsing local duplicates.
     _seen_raw: set[str] = set()
     _unique: list[dict] = []
     for j in all_jobs:
-        fp = f"{(j.get('title') or '').lower().strip()}|{(j.get('company') or '').lower().strip()}"
+        fp = f"{(j.get('title') or '').lower().strip()}|{(j.get('company') or '').lower().strip()}|{_source_family(j)}"
         if fp not in _seen_raw:
             _seen_raw.add(fp)
             _unique.append(j)

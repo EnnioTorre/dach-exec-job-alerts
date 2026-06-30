@@ -8,6 +8,8 @@ Writes /tmp/jobs/jobs_ranked.json
 import json
 import os
 import re
+import math
+from pathlib import Path
 from urllib.parse import urlparse
 from collections import defaultdict
 from datetime import date
@@ -19,6 +21,15 @@ from datetime import date
 ROLE_KEYWORDS = [
     "cto",
     "chief technology officer",
+    "engineer",
+    "software engineer",
+    "devops engineer",
+    "platform engineer",
+    "cloud engineer",
+    "site reliability engineer",
+    "sre engineer",
+    "backend engineer",
+    "infrastructure engineer",
     "head of engineering",
     "head of software",
     "head of software engineering",
@@ -42,14 +53,14 @@ ROLE_KEYWORDS = [
     "vice president engineering",
     "engineering lead",
     "technical director",
-    # German software/infra leadership terms
-    "teamleitung engineering",
-    "leitung softwareentwicklung",
-    "leiter softwareentwicklung",
-    "leitung plattform",
-    "leiter plattform",
-    "leitung cloud",
-    "leiter cloud",
+    # German technical engineer terms
+    "softwareentwickler",
+    "entwicklungsingenieur",
+    "devops engineer",
+    "plattform engineer",
+    "cloud engineer",
+    "site reliability engineer",
+    "sre engineer",
 ]
 
 DOMAIN_KEYWORDS = [
@@ -75,6 +86,10 @@ EXCLUDE_KEYWORDS = [
     "innendienst",
     "industrial",
     "electrical",
+    "eletrical",
+    "elektro",
+    "elektrotechnik",
+    "electromechanical",
     "quality",
     "landtechnik",
     "zeichner",
@@ -116,6 +131,20 @@ NON_JOB_TITLE_PATTERNS = [
     r"\bwiki\b",
 ]
 
+BAD_URL_PATTERNS = [
+    "/search",
+    "?q=",
+    "/jobs/cto",
+    "/jobs/head-of-engineering",
+    "/jobs/software-engineering",
+    "/jobs/platform-engineering",
+    "/jobs/cloud-engineering",
+    "/gehalt",
+    "/salary",
+    "/blog",
+    "/news",
+]
+
 
 def _contains_keyword(text: str, keyword: str) -> bool:
     # Match keyword as a token/phrase, not a loose substring.
@@ -137,17 +166,36 @@ TECH_IC_KEYWORDS = [
     "sre engineer",
     "backend engineer",
     "infrastructure engineer",
+    "softwareentwickler",
+    "entwicklungsingenieur",
+    "devops",
+    "platform engineering",
+    "cloud engineering",
+    "site reliability",
+    "sre",
+    "backend",
+    "infrastructure",
 ]
 
 
 def is_relevant(job: dict) -> bool:
     title = (job.get("title") or "").lower()
     url = (job.get("application_url") or job.get("source_url") or "").lower()
+    ai_rel = (job.get("ai_relevance") or "").lower()
+    ai_url_quality = (job.get("ai_url_quality") or "").lower()
+
+    if ai_rel == "reject":
+        return False
+    if ai_url_quality in {"search", "listing"}:
+        return False
 
     if any(re.search(p, title) for p in NON_JOB_TITLE_PATTERNS):
         return False
 
     if any(host in url for host in ("bing.com/search", "google.com/search", "duckduckgo.com/html")):
+        return False
+
+    if any(p in url for p in BAD_URL_PATTERNS):
         return False
 
     # If URL lacks typical job path hints, require stronger job-title signal.
@@ -176,6 +224,39 @@ def is_relevant(job: dict) -> bool:
     return cto_like or (has_role and has_domain) or has_tech_ic_role
 
 
+def is_relevant_relaxed(job: dict) -> bool:
+    """
+    Broader relevance gate used only as fallback when strict filtering
+    produces too few results.
+    """
+    title = (job.get("title") or "").lower()
+    url = (job.get("application_url") or job.get("source_url") or "").lower()
+    ai_rel = (job.get("ai_relevance") or "").lower()
+    ai_url_quality = (job.get("ai_url_quality") or "").lower()
+
+    if ai_rel == "reject":
+        return False
+    if ai_url_quality in {"search", "listing"}:
+        return False
+
+    if any(re.search(p, title) for p in NON_JOB_TITLE_PATTERNS):
+        return False
+    if any(host in url for host in ("bing.com/search", "google.com/search", "duckduckgo.com/html")):
+        return False
+    if any(p in url for p in BAD_URL_PATTERNS):
+        return False
+    if any(kw in title for kw in EXCLUDE_KEYWORDS):
+        return False
+
+    # Allow strong leadership or clear tech-IC terms even without full strict role+domain pair.
+    has_mgmt = _contains_any(title, MANAGEMENT_KEYWORDS)
+    has_domain = _contains_any(title, DOMAIN_KEYWORDS)
+    has_tech_ic = _contains_any(title, TECH_IC_KEYWORDS)
+    cto_like = bool(re.search(r"\bcto\b", title)) or "chief technology officer" in title
+
+    return cto_like or (has_mgmt and has_domain) or has_tech_ic
+
+
 # ---------------------------------------------------------------------------
 # Scoring helpers
 # ---------------------------------------------------------------------------
@@ -184,86 +265,136 @@ _VIENNA = ["vienna", "wien", "1010", "1020", "1030", "1040", "1050",
            "1060", "1070", "1080", "1090", "1100", "1110", "1120",
            "1130", "1140", "1150", "1160", "1170", "1180", "1190",
            "1200", "1210", "1220", "1230"]
-_BOLZANO = ["bolzano", "bozen", "south tyrol", "sudtirol", "südtirol"]
-_AUSTRIA = ["austria", "österreich", "graz", "linz", "salzburg",
-            "innsbruck", "klagenfurt", "villach", ".at"]
-_SWITZERLAND = ["switzerland", "schweiz", "zürich", "zurich", "basel",
-                "bern", "geneva", "genf", "lausanne", ".ch"]
-_GERMANY = ["germany", "deutschland", "berlin", "munich", "münchen",
-            "frankfurt", "hamburg", "cologne", "köln", "düsseldorf",
-            "stuttgart", "leipzig", ".de"]
 
-_BIG_TECH = [
-    "google", "amazon", "aws", "microsoft", "apple", "meta", "spotify",
-    "zalando", "booking", "siemens", "bosch", "bmw", "mercedes", "sap",
-    "intel", "oracle", "red hat", "ibm", "cisco", "salesforce", "atlassian",
-    "netflix", "airbnb", "stripe", "github", "gitlab", "hashicorp",
-]
+_DACH_LOCATION_POINTS: dict[str, tuple[float, float]] = {
+    "vienna": (48.2082, 16.3738),
+    "wien": (48.2082, 16.3738),
+    "graz": (47.0707, 15.4395),
+    "linz": (48.3069, 14.2858),
+    "salzburg": (47.8095, 13.0550),
+    "innsbruck": (47.2692, 11.4041),
+    "klagenfurt": (46.6247, 14.3053),
+    "villach": (46.6103, 13.8558),
+    "berlin": (52.5200, 13.4050),
+    "munich": (48.1351, 11.5820),
+    "münchen": (48.1351, 11.5820),
+    "frankfurt": (50.1109, 8.6821),
+    "hamburg": (53.5511, 9.9937),
+    "cologne": (50.9375, 6.9603),
+    "köln": (50.9375, 6.9603),
+    "düsseldorf": (51.2277, 6.7735),
+    "stuttgart": (48.7758, 9.1829),
+    "leipzig": (51.3397, 12.3731),
+    "zurich": (47.3769, 8.5417),
+    "zürich": (47.3769, 8.5417),
+    "basel": (47.5596, 7.5886),
+    "bern": (46.9480, 7.4474),
+    "geneva": (46.2044, 6.1432),
+    "genf": (46.2044, 6.1432),
+    "lausanne": (46.5197, 6.6323),
+}
+
+_COUNTRY_DISTANCE_FALLBACK = {
+    "at": 280.0,
+    "de": 560.0,
+    "ch": 700.0,
+    "dach": 500.0,
+}
+
+_AUSTRIA_HINTS = ["austria", "österreich", ".at"]
+_GERMANY_HINTS = ["germany", "deutschland", ".de"]
+_SWITZERLAND_HINTS = ["switzerland", "schweiz", ".ch"]
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    r = 6371.0
+    p1 = math.radians(lat1)
+    p2 = math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlambda / 2) ** 2
+    return 2 * r * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
-def location_score(location: str) -> float:
-    loc = location.lower()
-    if any(k in loc for k in _VIENNA):
+def _distance_from_vienna_km(location: str) -> float | None:
+    loc = (location or "").lower()
+    if not loc:
+        return None
+
+    vienna = _DACH_LOCATION_POINTS["vienna"]
+    for token, (lat, lon) in _DACH_LOCATION_POINTS.items():
+        if token in loc:
+            return _haversine_km(vienna[0], vienna[1], lat, lon)
+
+    if "remote" in loc or "dach" in loc:
+        return _COUNTRY_DISTANCE_FALLBACK["dach"]
+    if any(k in loc for k in _AUSTRIA_HINTS):
+        return _COUNTRY_DISTANCE_FALLBACK["at"]
+    if any(k in loc for k in _GERMANY_HINTS):
+        return _COUNTRY_DISTANCE_FALLBACK["de"]
+    if any(k in loc for k in _SWITZERLAND_HINTS):
+        return _COUNTRY_DISTANCE_FALLBACK["ch"]
+    return None
+
+
+def vienna_distance_score(location: str) -> float:
+    d = _distance_from_vienna_km(location)
+    if d is None:
+        return 2.4
+    if d <= 25:
         return 5.0
-    if any(k in loc for k in _BOLZANO):
-        # Bolzano/Bozen is near-Austria and fits DACH-adjacent exec searches.
-        return 4.5
-    if any(k in loc for k in _AUSTRIA):
-        return 4.0
-    if any(k in loc for k in _SWITZERLAND):
+    if d <= 100:
+        return 4.7
+    if d <= 250:
+        return 4.2
+    if d <= 450:
         return 3.5
-    if any(k in loc for k in _GERMANY):
-        return 3.0
-    if "remote" in loc:
-        return 3.5
-    return 2.0
-
-
-def company_score(company: str) -> float:
-    c = company.lower()
-    if any(k in c for k in _BIG_TECH):
-        return 5.0
-    if len(company.strip()) > 2:
-        return 3.0
-    return 2.0
+    if d <= 700:
+        return 2.8
+    if d <= 900:
+        return 2.2
+    return 1.8
 
 
 def salary_score(salary_text: str) -> float:
     if not salary_text:
-        return 2.5
+        return 2.0
     # Extract all numbers; treat largest as the ceiling/max
     nums = [int(n.replace(".", "").replace(",", ""))
             for n in re.findall(r"[\d.,]+", salary_text)
             if n.replace(".", "").replace(",", "").isdigit()]
     if not nums:
-        return 2.5
+        return 2.0
     peak = max(nums)
     if peak >= 150_000:
         return 5.0
     if peak >= 120_000:
         return 4.0
-    if peak >= 90_000:
+    if peak >= 100_000:
         return 3.0
-    if peak >= 60_000:
+    if peak >= 80_000:
         return 2.0
-    return 1.5
+    return 1.0
 
 
 def language_score(language_hint: str, company: str) -> float:
-    if (language_hint or "").lower() == "en":
+    lang = (language_hint or "").lower()
+    if lang == "en":
         return 5.0
+    if lang == "de":
+        # German-only is allowed, but clearly lower priority than English listings.
+        return 1.2
     if "international" in company.lower():
-        return 4.0
-    return 1.5
+        return 3.8
+    return 2.8
 
 
 def it_management_focus_score(title: str) -> float:
     """
-    Score how closely a title matches IT-management focus.
+    Score how closely a title matches management focus.
 
-    5.0: IT + management leadership role
-    2.5: IT role but not clearly management
-    1.5: management role without clear IT signal
+    5.0: clear management leadership role
+    3.0: management title with strong engineering/domain signal
+    2.0: engineer/devops IC role
     1.0: explicitly non-IT indicators
     """
     t = title.lower()
@@ -271,30 +402,39 @@ def it_management_focus_score(title: str) -> float:
     if _contains_any(t, EXCLUDE_KEYWORDS):
         return 1.0
 
-    has_cto = bool(re.search(r"\bcto\b", t)) or "chief technology officer" in t
-    has_it = has_cto or _contains_any(t, DOMAIN_KEYWORDS) or bool(re.search(r"\bit\b", t))
-    has_management = has_cto or _contains_any(t, MANAGEMENT_KEYWORDS)
+    has_engineering = _contains_any(t, [
+        "engineer",
+        "software engineer",
+        "platform engineer",
+        "cloud engineer",
+        "devops engineer",
+        "site reliability engineer",
+        "sre engineer",
+        "backend engineer",
+        "infrastructure engineer",
+        "softwareentwickler",
+        "entwicklungsingenieur",
+    ]) or _contains_any(t, DOMAIN_KEYWORDS)
+    has_management = _contains_any(t, MANAGEMENT_KEYWORDS)
 
-    # Pure CTO titles often surface less actionable results than explicit engineering-manager roles.
-    if has_cto and not _contains_any(t, ["engineering", "platform", "cloud", "software", "devops"]):
-        return 2.0
-
-    if has_it and has_management:
+    # Prefer management and leadership roles over IC engineering roles.
+    if has_management and has_engineering:
         return 5.0
-    if has_it:
-        return 2.5
+
     if has_management:
         return 1.5
+    if has_engineering:
+        return 2.0
     return 1.0
 
 
 def score_job(job: dict) -> float:
-    ls = location_score(job.get("location", ""))
-    cs = company_score(job.get("company", ""))
+    ls = vienna_distance_score(job.get("location", ""))
     ss = salary_score(job.get("salary_text", ""))
     lang = language_score(job.get("language_hint", ""), job.get("company", ""))
     focus = it_management_focus_score(job.get("title", ""))
-    raw = 0.20 * ls + 0.10 * cs + 0.10 * ss + 0.30 * lang + 0.30 * focus
+    # Prioritize: English + Vienna proximity + higher salary + management.
+    raw = 0.28 * ls + 0.22 * ss + 0.30 * lang + 0.20 * focus
     return round(max(1.0, min(5.0, raw)), 1)
 
 
@@ -313,11 +453,17 @@ def fingerprint(job: dict) -> str:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    with open("/tmp/jobs/jobs_raw.json", encoding="utf-8") as f:
+    in_path = "/tmp/jobs/jobs_raw_ai.json" if Path("/tmp/jobs/jobs_raw_ai.json").exists() else "/tmp/jobs/jobs_raw.json"
+    with open(in_path, encoding="utf-8") as f:
         data = json.load(f)
 
     jobs: list[dict] = data["jobs"]
-    print(f"Input: {len(jobs)} raw jobs")
+    # If AI pre-rank enrichment was applied, keep those corrected fields in the ranking input.
+    ai_pre_rank = bool(data.get("ai_pre_rank_enriched", False))
+    target_rank_count = int(os.getenv("RANK_TARGET_COUNT", "20"))
+    print(f"Input: {len(jobs)} raw jobs (from {in_path})")
+    if ai_pre_rank:
+        print(f"AI pre-rank updates: {data.get('ai_pre_rank_updates', 0)}")
 
     # 1. Relevance filter
     relevant = [j for j in jobs if is_relevant(j)]
@@ -341,6 +487,21 @@ def main() -> None:
 
     relevant = [j for j in relevant if _source_domain_ok(j)]
     print(f"After title filter: {len(relevant)}")
+
+    # If strict filtering is too tight, add a controlled relaxed fallback so
+    # ranking still yields a useful volume (target: up to 20 by default).
+    if len(relevant) < target_rank_count:
+        strict_fps = {fingerprint(j) for j in relevant}
+        relaxed_pool = [j for j in jobs if is_relevant_relaxed(j) and _source_domain_ok(j)]
+        for j in relaxed_pool:
+            fp = fingerprint(j)
+            if fp in strict_fps:
+                continue
+            relevant.append(j)
+            strict_fps.add(fp)
+            if len(relevant) >= target_rank_count:
+                break
+        print(f"After relaxed fallback: {len(relevant)}")
 
     # Optional language gating for issue quality.
     rank_language_only = os.getenv("RANK_LANGUAGE_ONLY", "").strip().lower()
@@ -401,7 +562,7 @@ def main() -> None:
         if source_counts.get(src, 0) < cap:
             source_counts[src] = source_counts.get(src, 0) + 1
             capped.append(j)
-        if len(capped) >= 40:
+        if len(capped) >= target_rank_count:
             break
 
     # Preserve diversification constraints and strongly prefer English listings at the top.
@@ -420,6 +581,7 @@ def main() -> None:
         "total_relevant": len(relevant),
         "total_deduped": len(deduped),
         "ranked_source_count": len({j.get("source_name", "unknown") for j in capped}),
+        "ai_pre_rank_enriched": ai_pre_rank,
         "jobs": capped,
     }
     out_path = "/tmp/jobs/jobs_ranked.json"

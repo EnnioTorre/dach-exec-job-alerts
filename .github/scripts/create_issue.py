@@ -55,6 +55,7 @@ def format_body(data: dict) -> str:
         f"**Sources scraped:** {len(stats)}",
         f"**Total raw listings:** {data.get('total_raw', '?')}",
         f"**After filter + dedup:** {data.get('total_deduped', '?')}",
+        f"**AI pre-rank cleanup:** {'✅ Yes' if data.get('ai_pre_rank_enriched') else '⚠️ No'}",
         f"**AI enrichment:** {'✅ Yes (GitHub Models)' if ai_enriched else '⚠️ No — deterministic fallback'}",
         "",
     ]
@@ -64,6 +65,8 @@ def format_body(data: dict) -> str:
         if not u:
             return False
         if any(x in u for x in ("google.com/search", "bing.com/search", "duckduckgo.com/html")):
+            return False
+        if any(x in u for x in ("/search", "?q=", "/blog", "/news", "/salary", "/gehalt")):
             return False
         if "karriere.at" in u:
             if "/jobs/" not in u:
