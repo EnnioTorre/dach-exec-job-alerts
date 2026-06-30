@@ -174,8 +174,14 @@ def _ssl_verify_option() -> str | bool:
     Resolve TLS verification mode.
 
     Default: verify with certifi bundle when available, else requests default.
+    Override: SCRAPER_CA_BUNDLE/REQUESTS_CA_BUNDLE/SSL_CERT_FILE path is used if set.
     Override: SCRAPER_SSL_VERIFY=false disables verification (last resort).
     """
+    for env_var in ("SCRAPER_CA_BUNDLE", "REQUESTS_CA_BUNDLE", "SSL_CERT_FILE"):
+        ca_path = (os.getenv(env_var) or "").strip()
+        if ca_path and os.path.isfile(ca_path):
+            return ca_path
+
     if os.getenv("SCRAPER_SSL_VERIFY", "true").lower() in {"0", "false", "no"}:
         return False
     if certifi is not None:
@@ -409,6 +415,9 @@ def parse_json_jobs(json_text: str, source_name: str) -> list[dict]:
         if not link:
             continue
 
+        created = item.get("created_at") or item.get("published_at") or ""
+        publish_date = str(created).strip() if created is not None else ""
+
         jobs.append({
             "title": title,
             "company": company,
@@ -416,7 +425,7 @@ def parse_json_jobs(json_text: str, source_name: str) -> list[dict]:
             "source_name": source_name,
             "source_url": link,
             "application_url": link,
-            "publish_date": (item.get("created_at") or item.get("published_at") or "").strip(),
+            "publish_date": publish_date,
             "salary_text": "",
             "language_hint": "en",
         })
@@ -839,6 +848,8 @@ def main() -> None:
     os.makedirs("/tmp/jobs", exist_ok=True)
     all_jobs: list[dict] = []
     stats: dict[str, int] = {}
+    failed_fetch_sources: list[str] = []
+    fail_on_fetch_error = os.getenv("SCRAPER_FAIL_ON_FETCH_ERROR", "true").lower() in {"1", "true", "yes"}
 
     for src in SOURCES:
         name = src["name"]
@@ -850,6 +861,7 @@ def main() -> None:
         if not content:
             print(f"  SKIP {name}: fetch failed")
             stats[name] = 0
+            failed_fetch_sources.append(name)
             continue
 
         if src_type == "rss":
@@ -882,6 +894,13 @@ def main() -> None:
 
     print(f"\nTotal raw: {len(all_jobs)} across {len(SOURCES)} sources")
     print(f"Stats: {stats}")
+
+    if fail_on_fetch_error and failed_fetch_sources:
+        print(
+            "Fetch failures detected (strict mode enabled): "
+            + ", ".join(failed_fetch_sources)
+        )
+        raise SystemExit(2)
 
     # Deduplicate by title+company before the output cap so triplication
     # in site-specific parsers doesn't inflate counts or waste the cap quota.
