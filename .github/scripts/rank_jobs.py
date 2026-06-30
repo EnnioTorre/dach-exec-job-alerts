@@ -14,43 +14,118 @@ from datetime import date
 # Relevance filter
 # ---------------------------------------------------------------------------
 
-TITLE_KEYWORDS = [
-    # English exec titles
+ROLE_KEYWORDS = [
     "cto",
     "chief technology officer",
     "head of engineering",
     "head of software",
+    "head of software engineering",
     "head of platform",
+    "head of platform engineering",
     "head of cloud",
-    "head of infrastructure",
-    "head of it",
-    "head of tech",
-    "head of digital",
+    "head of cloud engineering",
+    "head of digitalization",
     "head of data",
-    "head of product",
-    "head of industrial",
-    "head of electrical",
     "head of devops",
+    "head of sre",
+    "head of infrastructure",
     "engineering manager",
+    "platform engineering manager",
+    "cloud engineering manager",
     "director of engineering",
-    "director of technology",
+    "director of platform engineering",
+    "director of cloud engineering",
     "vp engineering",
     "vp of engineering",
     "vice president engineering",
-    "chief engineer",
     "engineering lead",
     "technical director",
-    # German exec titles (DACH-specific)
-    "leitung technik",
+    # German software/infra leadership terms
     "teamleitung engineering",
-    "it-leitung",
-    "it leitung",
+    "leitung softwareentwicklung",
+    "leiter softwareentwicklung",
+    "leitung plattform",
+    "leiter plattform",
+    "leitung cloud",
+    "leiter cloud",
+]
+
+DOMAIN_KEYWORDS = [
+    "engineering",
+    "software",
+    "platform",
+    "cloud",
+    "devops",
+    "sre",
+    "site reliability",
+    "infrastructure",
+    "backend",
+    "data platform",
+    "data",
+    "digitalization",
+]
+
+EXCLUDE_KEYWORDS = [
+    "sales",
+    "vertrieb",
+    "key account",
+    "kundendienst",
+    "innendienst",
+    "industrial",
+    "electrical",
+    "quality",
+    "landtechnik",
+    "zeichner",
+    "cnc",
+]
+
+MANAGEMENT_KEYWORDS = [
+    "head",
+    "manager",
+    "director",
+    "vp",
+    "vice president",
+    "lead",
+    "leitung",
+    "leiter",
+    "chief",
+    "cto",
+]
+
+
+def _contains_keyword(text: str, keyword: str) -> bool:
+    # Match keyword as a token/phrase, not a loose substring.
+    pattern = r"\b" + re.escape(keyword).replace(r"\ ", r"\s+") + r"\b"
+    return bool(re.search(pattern, text))
+
+
+def _contains_any(text: str, keywords: list[str]) -> bool:
+    return any(_contains_keyword(text, kw) for kw in keywords)
+
+TECH_IC_KEYWORDS = [
+    "software engineer",
+    "software developer",
+    "platform engineer",
+    "cloud engineer",
+    "cloud systems engineer",
+    "devops engineer",
+    "site reliability engineer",
+    "sre engineer",
+    "backend engineer",
+    "infrastructure engineer",
 ]
 
 
 def is_relevant(job: dict) -> bool:
     title = (job.get("title") or "").lower()
-    return any(kw in title for kw in TITLE_KEYWORDS)
+    if any(kw in title for kw in EXCLUDE_KEYWORDS):
+        return False
+
+    cto_like = bool(re.search(r"\bcto\b", title)) or "chief technology officer" in title
+    has_role = any(kw in title for kw in ROLE_KEYWORDS)
+    has_domain = any(kw in title for kw in DOMAIN_KEYWORDS)
+    has_tech_ic_role = any(kw in title for kw in TECH_IC_KEYWORDS)
+    return cto_like or (has_role and has_domain) or has_tech_ic_role
 
 
 # ---------------------------------------------------------------------------
@@ -134,12 +209,40 @@ def language_score(language_hint: str, company: str) -> float:
     return 3.0
 
 
+def it_management_focus_score(title: str) -> float:
+    """
+    Score how closely a title matches IT-management focus.
+
+    5.0: IT + management leadership role
+    2.5: IT role but not clearly management
+    1.5: management role without clear IT signal
+    1.0: explicitly non-IT indicators
+    """
+    t = title.lower()
+
+    if _contains_any(t, EXCLUDE_KEYWORDS):
+        return 1.0
+
+    has_cto = bool(re.search(r"\bcto\b", t)) or "chief technology officer" in t
+    has_it = has_cto or _contains_any(t, DOMAIN_KEYWORDS) or bool(re.search(r"\bit\b", t))
+    has_management = has_cto or _contains_any(t, MANAGEMENT_KEYWORDS)
+
+    if has_it and has_management:
+        return 5.0
+    if has_it:
+        return 2.5
+    if has_management:
+        return 1.5
+    return 1.0
+
+
 def score_job(job: dict) -> float:
     ls = location_score(job.get("location", ""))
     cs = company_score(job.get("company", ""))
     ss = salary_score(job.get("salary_text", ""))
     lang = language_score(job.get("language_hint", ""), job.get("company", ""))
-    raw = 0.35 * ls + 0.20 * cs + 0.30 * ss + 0.15 * lang
+    focus = it_management_focus_score(job.get("title", ""))
+    raw = 0.25 * ls + 0.15 * cs + 0.15 * ss + 0.10 * lang + 0.35 * focus
     return round(max(1.0, min(5.0, raw)), 1)
 
 
@@ -216,6 +319,9 @@ def main() -> None:
             capped.append(j)
         if len(capped) >= 40:
             break
+
+    # Preserve diversification constraints but present final list by score.
+    capped = sorted(capped, key=lambda j: j["score"], reverse=True)
 
     print(f"Final ranked: {len(capped)}")
 

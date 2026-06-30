@@ -64,8 +64,9 @@ Source results today:
 Sources that returned 0 listings: {failed_sources}
 Sources that returned fewer than 3 listings: {thin_sources}
 
-Target roles: Engineering Manager, CTO, Head of Engineering, Director of Engineering,
-Head of Platform/Cloud/Infrastructure, VP Engineering.
+Target roles: Software Engineering Manager, Head of Software Engineering,
+Head of Platform Engineering, Head of Cloud Engineering, Director of Engineering,
+Director of Platform/Cloud Engineering, VP Engineering, CTO.
 Target market: DACH (Austria ≥ 50%, Germany ≥ 30%, Switzerland ≥ 20%).
 Language: prefer English-friendly roles.
 

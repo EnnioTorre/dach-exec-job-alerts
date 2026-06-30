@@ -21,7 +21,7 @@ import re
 import time
 import xml.etree.ElementTree as ET
 from datetime import date
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse, parse_qs, unquote
 
 import requests
 from bs4 import BeautifulSoup
@@ -53,6 +53,12 @@ SOURCES = [
      "url": "https://www.karriere.at/jobs/cto",                  "region": "AT"},
     {"name": "karriere_at_hoe",   "type": "html",
      "url": "https://www.karriere.at/jobs/head-of-engineering",  "region": "AT"},
+    {"name": "karriere_at_software", "type": "html",
+     "url": "https://www.karriere.at/jobs/software-engineering", "region": "AT"},
+    {"name": "karriere_at_platform", "type": "html",
+     "url": "https://www.karriere.at/jobs/platform-engineering", "region": "AT"},
+    {"name": "karriere_at_cloud", "type": "html",
+     "url": "https://www.karriere.at/jobs/cloud-engineering",    "region": "AT"},
 
     # Indeed AT — use RSS feed (no JS wall, structured data, officially supported)
     {"name": "indeed_at_rss",     "type": "rss",
@@ -66,7 +72,7 @@ SOURCES = [
      "url": "https://www.jobs.ch/en/vacancies/?term=head+of+engineering", "region": "CH"},
 
     # LinkedIn is NOT scraped directly (JS wall + ToS prohibition).
-    # Reached via Google search proxy which returns public job-card snippets.
+    # Reached via search-engine proxies which return public snippets.
     {"name": "google_linkedin_at", "type": "google_proxy",
      "url": "https://www.google.com/search?" + urlencode({
          "q": 'site:linkedin.com/jobs "Head of Engineering" OR "CTO" Austria OR Bolzano OR Bozen',
@@ -77,6 +83,34 @@ SOURCES = [
          "q": 'site:linkedin.com/jobs "Director of Engineering" OR "VP Engineering" Germany',
          "num": "20",
      }), "region": "DE"},
+
+    # Bing/DuckDuckGo proxies improve resilience when Google yields no extractable cards.
+    {"name": "bing_linkedin_at", "type": "search_proxy",
+     "url": "https://www.bing.com/search?" + urlencode({
+         "q": 'site:linkedin.com/jobs "Head of Engineering" OR CTO Austria',
+         "count": "20",
+     }), "region": "AT"},
+    {"name": "bing_linkedin_de", "type": "search_proxy",
+     "url": "https://www.bing.com/search?" + urlencode({
+         "q": 'site:linkedin.com/jobs "Platform Engineering Manager" OR "Director of Engineering" Germany',
+         "count": "20",
+     }), "region": "DE"},
+    {"name": "ddg_linkedin_dach", "type": "search_proxy",
+     "url": "https://duckduckgo.com/html/?" + urlencode({
+         "q": 'site:linkedin.com/jobs "Head of Engineering" OR "Cloud Engineering Manager" DACH',
+     }), "region": "DACH"},
+
+    # Proxies for sources that fail direct fetch in CI.
+    {"name": "bing_stepstone_dach", "type": "search_proxy",
+     "url": "https://www.bing.com/search?" + urlencode({
+         "q": 'site:stepstone.at/jobs OR site:stepstone.de/jobs "Head of Engineering" OR "Platform Engineer"',
+         "count": "20",
+     }), "region": "DACH"},
+    {"name": "bing_indeed_dach", "type": "search_proxy",
+     "url": "https://www.bing.com/search?" + urlencode({
+         "q": 'site:indeed.com OR site:indeed.de "Engineering Manager" OR "Head of Engineering"',
+         "count": "20",
+     }), "region": "DACH"},
 
     # Google Jobs structured results — broad DACH sweep
     {"name": "google_jobs_at",    "type": "google_proxy",
@@ -316,6 +350,21 @@ def parse_rss(xml_text: str, source_name: str) -> list[dict]:
 #   Used for LinkedIn and generic career pages that block direct scraping.
 # ---------------------------------------------------------------------------
 
+def _extract_search_result_url(href: str) -> str:
+    """Normalize search-engine result URLs, including redirect wrappers."""
+    if not href:
+        return ""
+    if href.startswith("http://") or href.startswith("https://"):
+        return href
+    if href.startswith("/"):
+        parsed = urlparse(href)
+        if parsed.path in {"/url", "/link"}:
+            qs = parse_qs(parsed.query)
+            target = qs.get("q", [""])[0] or qs.get("url", [""])[0]
+            return unquote(target) if target else ""
+    return ""
+
+
 def parse_google_jobs(html: str, source_name: str) -> list[dict]:
     """
     Extract job listings from Google search results.
@@ -328,19 +377,17 @@ def parse_google_jobs(html: str, source_name: str) -> list[dict]:
     if jobs:
         return jobs
 
-    # Fallback: parse organic result titles + URLs
+    # Fallback: parse organic result titles + URLs from common SERP layouts.
     soup = BeautifulSoup(html, "html.parser")
     results: list[dict] = []
 
-    for div in soup.find_all("div", class_=re.compile(r"^g$|tF2Cxc", re.I)):
-        title_el = div.find("h3")
-        link_el = div.find("a", href=re.compile(r"^https://"))
-        snippet_el = div.find(class_=re.compile(r"VwiC3b|IsZvec", re.I))
-        if not title_el or not link_el:
-            continue
-        title = title_el.get_text(strip=True)
-        href = link_el["href"]
-        snippet = snippet_el.get_text(" ", strip=True) if snippet_el else ""
+    def _append_result(title: str, href: str, snippet: str) -> None:
+        url = _extract_search_result_url(href)
+        if not url:
+            return
+        title = title.strip()
+        if not title:
+            return
         m_at = re.search(r"(?:at|bei|@)\s+([A-Z][\w\s&.]+?)(?:\s*[·|\-,]|$)", snippet)
         company = m_at.group(1).strip() if m_at else ""
         results.append({
@@ -348,12 +395,58 @@ def parse_google_jobs(html: str, source_name: str) -> list[dict]:
             "company": company,
             "location": "",
             "source_name": source_name,
-            "source_url": href,
-            "application_url": href,
+            "source_url": url,
+            "application_url": url,
             "publish_date": "",
             "salary_text": "",
             "language_hint": "en",
         })
+
+    # Google layout
+    for div in soup.find_all("div", class_=re.compile(r"^g$|tF2Cxc", re.I)):
+        title_el = div.find("h3")
+        link_el = div.find("a", href=True)
+        snippet_el = div.find(class_=re.compile(r"VwiC3b|IsZvec", re.I))
+        if not title_el or not link_el:
+            continue
+        snippet = snippet_el.get_text(" ", strip=True) if snippet_el else ""
+        _append_result(title_el.get_text(strip=True), link_el.get("href", ""), snippet)
+
+    # Bing layout
+    for li in soup.select("li.b_algo"):
+        a = li.select_one("h2 a[href]")
+        if not a:
+            continue
+        snippet_el = li.select_one("p")
+        snippet = snippet_el.get_text(" ", strip=True) if snippet_el else ""
+        _append_result(a.get_text(strip=True), a.get("href", ""), snippet)
+
+    # DuckDuckGo layout
+    for item in soup.select("article[data-testid='result'], .result"):
+        a = item.select_one("h2 a[href], a.result__a[href]")
+        if not a:
+            continue
+        snippet_el = item.select_one(".result__snippet, [data-result='snippet'], .snippet")
+        snippet = snippet_el.get_text(" ", strip=True) if snippet_el else ""
+        _append_result(a.get_text(strip=True), a.get("href", ""), snippet)
+
+    # Keep only the domain family implied by the source name.
+    if "linkedin" in source_name:
+        results = [r for r in results if "linkedin.com" in (r.get("application_url") or "")]
+    elif "stepstone" in source_name:
+        results = [r for r in results if "stepstone." in (r.get("application_url") or "")]
+    elif "indeed" in source_name:
+        results = [r for r in results if "indeed." in (r.get("application_url") or "")]
+
+    # Deduplicate proxy results by destination URL.
+    seen_urls: set[str] = set()
+    uniq: list[dict] = []
+    for row in results:
+        key = (row.get("application_url") or row.get("source_url") or "").strip().lower()
+        if key and key not in seen_urls:
+            seen_urls.add(key)
+            uniq.append(row)
+    results = uniq
 
     # Enrich google-discovered entries by scraping destination career pages
     # directly (best effort, capped to keep runtime bounded).
@@ -572,6 +665,9 @@ PARSER_MAP = {
     "stepstone_de_hoe":    parse_stepstone,
     "karriere_at_cto":     parse_karriere_at,
     "karriere_at_hoe":     parse_karriere_at,
+    "karriere_at_software": parse_karriere_at,
+    "karriere_at_platform": parse_karriere_at,
+    "karriere_at_cloud":    parse_karriere_at,
     "jobs_ch":             parse_jobs_ch,
     # rss sources (also used by scrape_extra.py for any indeed-like suggestion)
     "indeed_at_rss":       parse_rss,
@@ -580,6 +676,11 @@ PARSER_MAP = {
     "google_linkedin_de":  parse_google_jobs,
     "google_jobs_at":      parse_google_jobs,
     "google_jobs_bolzano": parse_google_jobs,
+    "bing_linkedin_at":    parse_google_jobs,
+    "bing_linkedin_de":    parse_google_jobs,
+    "ddg_linkedin_dach":   parse_google_jobs,
+    "bing_stepstone_dach": parse_google_jobs,
+    "bing_indeed_dach":    parse_google_jobs,
 }
 
 
@@ -607,7 +708,7 @@ def main() -> None:
         if src_type == "rss":
             jobs = parse_rss(content, name)
             print(f"  RSS: {len(jobs)} jobs")
-        elif src_type == "google_proxy":
+        elif src_type in {"google_proxy", "search_proxy"}:
             jobs = parse_google_jobs(content, name)
             print(f"  Google proxy: {len(jobs)} jobs")
         else:
