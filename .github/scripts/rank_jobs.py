@@ -14,22 +14,36 @@ from datetime import date
 # ---------------------------------------------------------------------------
 
 TITLE_KEYWORDS = [
+    # English exec titles
     "cto",
     "chief technology officer",
     "head of engineering",
+    "head of software",
     "head of platform",
     "head of cloud",
     "head of infrastructure",
     "head of it",
     "head of tech",
+    "head of digital",
+    "head of data",
+    "head of product",
+    "head of industrial",
+    "head of electrical",
+    "head of devops",
     "engineering manager",
     "director of engineering",
+    "director of technology",
     "vp engineering",
     "vp of engineering",
     "vice president engineering",
     "chief engineer",
     "engineering lead",
     "technical director",
+    # German exec titles (DACH-specific)
+    "leitung technik",
+    "teamleitung engineering",
+    "it-leitung",
+    "it leitung",
 ]
 
 
@@ -170,16 +184,17 @@ def main() -> None:
     # 4. Sort descending
     ranked = sorted(deduped, key=lambda j: j["score"], reverse=True)
 
-    # 5. Per-source diversity cap (≤40% of final list from any one source)
+    # 5. Per-source diversity cap (≤50% of final list, minimum 10 per source)
+    # A hard min of 10 prevents over-pruning when only 1–2 sources are active.
     source_counts: dict[str, int] = {}
     capped: list[dict] = []
-    cap = max(1, round(len(ranked) * 0.40))
+    cap = max(10, round(len(ranked) * 0.50))
     for j in ranked:
         src = j.get("source_name", "unknown")
         if source_counts.get(src, 0) < cap:
             source_counts[src] = source_counts.get(src, 0) + 1
             capped.append(j)
-        if len(capped) >= 25:
+        if len(capped) >= 40:
             break
 
     print(f"Final ranked: {len(capped)}")

@@ -632,10 +632,22 @@ def main() -> None:
     print(f"\nTotal raw: {len(all_jobs)} across {len(SOURCES)} sources")
     print(f"Stats: {stats}")
 
+    # Deduplicate by title+company before the output cap so triplication
+    # in site-specific parsers doesn't inflate counts or waste the cap quota.
+    _seen_raw: set[str] = set()
+    _unique: list[dict] = []
+    for j in all_jobs:
+        fp = f"{(j.get('title') or '').lower().strip()}|{(j.get('company') or '').lower().strip()}"
+        if fp not in _seen_raw:
+            _seen_raw.add(fp)
+            _unique.append(j)
+    all_jobs = _unique
+    print(f"After raw dedup: {len(all_jobs)} unique jobs")
+
     output = {
         "date": str(date.today()),
         "stats": stats,
-        "jobs": all_jobs[:80],  # cap to limit downstream token use
+        "jobs": all_jobs[:200],  # cap to limit downstream token use
     }
     out_path = "/tmp/jobs/jobs_raw.json"
     with open(out_path, "w", encoding="utf-8") as f:
