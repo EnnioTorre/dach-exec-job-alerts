@@ -79,7 +79,107 @@ SOURCES = [
     {"name": "arbeitnow_dach",    "type": "json_api",
      "url": "https://www.arbeitnow.com/api/job-board-api", "region": "DACH"},
 
-    # LinkedIn is NOT scraped directly (JS wall + ToS prohibition).
+    # =========================================================================
+    # LinkedIn Direct API sources (public guest endpoint — no auth required)
+    #   /jobs-guest/jobs/api/seeMoreJobPostings/search returns structured job
+    #   card HTML that is server-side rendered and accessible without a session.
+    #   This replaces the fragile Google/Bing SERP proxy approach for LinkedIn.
+    # =========================================================================
+    # Austria — leadership roles (multiple pages to maximise volume)
+    {"name": "linkedin_at_leader_0", "type": "linkedin_api",
+     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
+         "keywords": "Engineering Manager OR CTO OR Head of Engineering OR VP Engineering OR Director of Engineering",
+         "location": "Austria", "start": "0",
+     }), "region": "AT"},
+    {"name": "linkedin_at_leader_1", "type": "linkedin_api",
+     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
+         "keywords": "Engineering Manager OR CTO OR Head of Engineering OR VP Engineering OR Director of Engineering",
+         "location": "Austria", "start": "10",
+     }), "region": "AT"},
+    {"name": "linkedin_at_leader_2", "type": "linkedin_api",
+     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
+         "keywords": "Engineering Manager OR CTO OR Head of Engineering OR VP Engineering OR Director of Engineering",
+         "location": "Austria", "start": "20",
+     }), "region": "AT"},
+    {"name": "linkedin_at_leader_3", "type": "linkedin_api",
+     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
+         "keywords": "Engineering Manager OR CTO OR Head of Engineering OR VP Engineering OR Director of Engineering",
+         "location": "Austria", "start": "30",
+     }), "region": "AT"},
+    # Austria — senior / principal tech roles
+    {"name": "linkedin_at_principal_0", "type": "linkedin_api",
+     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
+         "keywords": "Principal Engineer OR Staff Engineer OR Tech Lead OR Senior Engineer OR Platform Engineer",
+         "location": "Austria", "start": "0",
+     }), "region": "AT"},
+    {"name": "linkedin_at_principal_1", "type": "linkedin_api",
+     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
+         "keywords": "Principal Engineer OR Staff Engineer OR Tech Lead OR Senior Engineer OR Platform Engineer",
+         "location": "Austria", "start": "10",
+     }), "region": "AT"},
+    # Germany — leadership roles
+    {"name": "linkedin_de_leader_0", "type": "linkedin_api",
+     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
+         "keywords": "Engineering Manager OR CTO OR Head of Engineering OR VP Engineering OR Director of Engineering",
+         "location": "Germany", "start": "0",
+     }), "region": "DE"},
+    {"name": "linkedin_de_leader_1", "type": "linkedin_api",
+     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
+         "keywords": "Engineering Manager OR CTO OR Head of Engineering OR VP Engineering OR Director of Engineering",
+         "location": "Germany", "start": "10",
+     }), "region": "DE"},
+    {"name": "linkedin_de_leader_2", "type": "linkedin_api",
+     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
+         "keywords": "Engineering Manager OR CTO OR Head of Engineering OR VP Engineering OR Director of Engineering",
+         "location": "Germany", "start": "20",
+     }), "region": "DE"},
+    # Germany — senior tech roles
+    {"name": "linkedin_de_principal_0", "type": "linkedin_api",
+     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
+         "keywords": "Principal Engineer OR Staff Engineer OR Tech Lead OR Senior Software Engineer",
+         "location": "Germany", "start": "0",
+     }), "region": "DE"},
+    {"name": "linkedin_de_principal_1", "type": "linkedin_api",
+     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
+         "keywords": "Principal Engineer OR Staff Engineer OR Tech Lead OR Senior Software Engineer",
+         "location": "Germany", "start": "10",
+     }), "region": "DE"},
+    # Switzerland
+    {"name": "linkedin_ch_leader_0", "type": "linkedin_api",
+     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
+         "keywords": "Engineering Manager OR CTO OR Head of Engineering OR VP Engineering OR Director of Engineering",
+         "location": "Switzerland", "start": "0",
+     }), "region": "CH"},
+    {"name": "linkedin_ch_leader_1", "type": "linkedin_api",
+     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
+         "keywords": "Engineering Manager OR CTO OR Head of Engineering OR VP Engineering",
+         "location": "Switzerland", "start": "10",
+     }), "region": "CH"},
+    # DACH-wide CTO / VP sweeps
+    {"name": "linkedin_dach_cto_0", "type": "linkedin_api",
+     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
+         "keywords": "CTO OR Chief Technology Officer OR VP Engineering OR VP Technology",
+         "location": "DACH", "start": "0",
+     }), "region": "DACH"},
+    {"name": "linkedin_dach_dir_0", "type": "linkedin_api",
+     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
+         "keywords": "Director of Engineering OR Director of Technology OR Engineering Director",
+         "location": "DACH", "start": "0",
+     }), "region": "DACH"},
+    # Vienna and Berlin city-level sweeps for denser local markets
+    {"name": "linkedin_vienna_0", "type": "linkedin_api",
+     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
+         "keywords": "Engineering Manager OR Head of Engineering OR CTO OR Tech Lead",
+         "location": "Vienna, Austria", "start": "0",
+     }), "region": "AT"},
+    {"name": "linkedin_berlin_0", "type": "linkedin_api",
+     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
+         "keywords": "Engineering Manager OR Head of Engineering OR CTO OR VP Engineering",
+         "location": "Berlin, Germany", "start": "0",
+     }), "region": "DE"},
+
+    # LinkedIn is also reached via search-engine proxies as a fallback for when
+    # the guest API is unavailable or returns no results for a given region.
     # Reached via search-engine proxies which return public snippets.
     # Each source targets a distinct title × region pair to avoid redundancy.
     {"name": "google_linkedin_at", "type": "google_proxy",
@@ -136,6 +236,129 @@ SOURCES = [
          "q": 'site:linkedin.com/jobs/view OR site:jobs.ch/en/vacancies/detail/ "VP Engineering" OR "Head of Engineering" Switzerland OR Bolzano OR Bozen -wikipedia',
          "num": "20",
      }), "region": "CH"},
+
+    # =========================================================================
+    # Tier 2: Additional proxy sources for improved coverage
+    # =========================================================================
+    
+    # Bing variants with additional title keywords (Principal, Tech Lead, Staff)
+    {"name": "bing_linkedin_principal", "type": "search_proxy",
+     "url": "https://www.bing.com/search?" + urlencode({
+         "q": 'site:linkedin.com/jobs/view "Principal Engineer" OR "Staff Engineer" OR "Tech Lead" DACH',
+         "count": "20",
+     }), "region": "DACH"},
+    
+    {"name": "bing_linkedin_de_mgr", "type": "search_proxy",
+     "url": "https://www.bing.com/search?" + urlencode({
+         "q": 'site:linkedin.com/jobs/view "Engineering Manager" OR "Senior Engineer Manager" Germany',
+         "count": "20",
+     }), "region": "DE"},
+    
+    {"name": "bing_linkedin_ch_tech", "type": "search_proxy",
+     "url": "https://www.bing.com/search?" + urlencode({
+         "q": 'site:linkedin.com/jobs/view "Chief Technology" OR "CTO" OR "Tech Director" Switzerland',
+         "count": "20",
+     }), "region": "CH"},
+
+    # DuckDuckGo variants with different search patterns
+    {"name": "ddg_linkedin_at", "type": "search_proxy",
+     "url": "https://duckduckgo.com/html/?" + urlencode({
+         "q": 'site:linkedin.com/jobs/view "CTO" OR "VP Engineering" Austria',
+     }), "region": "AT"},
+    
+    {"name": "ddg_linkedin_de", "type": "search_proxy",
+     "url": "https://duckduckgo.com/html/?" + urlencode({
+         "q": 'site:linkedin.com/jobs/view "Head of Engineering" OR "Director of Engineering" Germany',
+     }), "region": "DE"},
+
+    # Ecosia as alternative proxy (bot-friendly, privacy-focused)
+    {"name": "ecosia_linkedin_de", "type": "search_proxy",
+     "url": "https://www.ecosia.org/search?" + urlencode({
+         "q": 'site:linkedin.com/jobs/view engineering manager Germany',
+     }), "region": "DE"},
+    
+    {"name": "ecosia_jobs_at", "type": "search_proxy",
+     "url": "https://www.ecosia.org/search?" + urlencode({
+         "q": 'site:jobs.ch OR site:stepstone.at CTO "Austria"',
+     }), "region": "AT"},
+
+    # DuckDuckGo for Stepstone/Indeed (alternative to Bing)
+    {"name": "ddg_stepstone_de", "type": "search_proxy",
+     "url": "https://duckduckgo.com/html/?" + urlencode({
+         "q": 'site:stepstone.de/jobs "Head of Engineering" OR "CTO" Germany',
+     }), "region": "DE"},
+
+    # YouTube/Reddit job postings (some companies post directly)
+    {"name": "bing_engineering_at", "type": "search_proxy",
+     "url": "https://www.bing.com/search?" + urlencode({
+         "q": 'engineering jobs Austria "Vienna" OR "Graz" OR "Linz" -wordpress',
+         "count": "20",
+     }), "region": "AT"},
+
+    # Company career pages via search proxies (safer than detection-prone direct access)
+    {"name": "bing_career_pages_de", "type": "search_proxy",
+     "url": "https://www.bing.com/search?" + urlencode({
+         "q": 'site:careers.siemens.com OR site:careers.boehringer OR site:careers.sap.com "engineering" Germany',
+         "count": "20",
+     }), "region": "DE"},
+
+    {"name": "bing_tech_company_at", "type": "search_proxy",
+     "url": "https://www.bing.com/search?" + urlencode({
+         "q": '"engineering opportunities" OR "join our team" Vienna Austria site:.at/careers OR site:.at/jobs',
+         "count": "20",
+     }), "region": "AT"},
+
+    # Additional Xing searches (German-speaking market) — note: Xing may require JS rendering
+    # but search result pages are often scrapeable
+    {"name": "google_xing_de", "type": "google_proxy",
+     "url": "https://www.google.com/search?" + urlencode({
+         "q": 'site:xing.com/jobs "CTO" OR "VP Engineering" OR "Head of Engineering" Germany Munich',
+         "num": "20",
+     }), "region": "DE"},
+
+    {"name": "bing_xing_de", "type": "search_proxy",
+     "url": "https://www.bing.com/search?" + urlencode({
+         "q": 'site:xing.com engineering manager germany berlin -job.de',
+         "count": "20",
+     }), "region": "DE"},
+
+    # Direct job aggregator sources (more reliable than company pages)
+    {"name": "bing_indeed_de", "type": "search_proxy",
+     "url": "https://www.bing.com/search?" + urlencode({
+         "q": 'site:indeed.de "Head of Engineering" OR "VP Engineering" engineering jobs',
+         "count": "20",
+     }), "region": "DE"},
+
+    # Regional expansions (Vienna, Munich, Zurich, Berlin subsearch)
+    {"name": "google_vienna_jobs", "type": "google_proxy",
+     "url": "https://www.google.com/search?" + urlencode({
+         "q": 'Vienna Austria engineering manager OR "head of" OR CTO site:linkedin.com -job.com',
+         "num": "20",
+     }), "region": "AT"},
+
+    {"name": "bing_berlin_tech", "type": "search_proxy",
+     "url": "https://www.bing.com/search?" + urlencode({
+         "q": 'Berlin Germany engineering leadership "engineering manager" OR "tech lead" OR CTO',
+         "count": "20",
+     }), "region": "DE"},
+
+    {"name": "bing_zurich_jobs", "type": "search_proxy",
+     "url": "https://www.bing.com/search?" + urlencode({
+         "q": 'Zurich Switzerland engineering jobs leadership site:linkedin.com',
+         "count": "20",
+     }), "region": "CH"},
+
+    # Higher page result numbers for better coverage
+    {"name": "bing_linkedin_diverse_at", "type": "search_proxy",
+     "url": "https://www.bing.com/search?" + urlencode({
+         "q": 'site:linkedin.com/jobs/view Austria technology engineering leadership',
+         "count": "30",
+     }), "region": "AT"},
+
+    {"name": "ddg_tech_dach", "type": "search_proxy",
+     "url": "https://duckduckgo.com/html/?" + urlencode({
+         "q": 'engineering director OR "VP of engineering" DACH 2025 2026',
+     }), "region": "DACH"},
 ]
 
 # Alternate URLs used when a source fetch fails or repeatedly returns no content.
@@ -188,6 +411,83 @@ SOURCE_URL_FALLBACKS: dict[str, list[str]] = {
         "https://www.bing.com/search?" + urlencode({"q": '"VP Engineering" OR "Head of Engineering" jobs Switzerland', "count": "20"}),
         "https://www.bing.com/search?" + urlencode({"q": '"Head of Engineering" jobs Bolzano', "count": "20"}),
     ],
+    # Tier 2 fallbacks
+    "bing_linkedin_principal": [
+        "https://duckduckgo.com/html/?" + urlencode({"q": 'site:linkedin.com/jobs/view "Principal Engineer" DACH'}),
+        "https://www.google.com/search?" + urlencode({"q": 'site:linkedin.com/jobs/view "Staff Engineer" engineering', "num": "20"}),
+    ],
+    "bing_linkedin_de_mgr": [
+        "https://duckduckgo.com/html/?" + urlencode({"q": 'site:linkedin.com/jobs/view "Engineering Manager" Germany'}),
+        "https://www.ecosia.org/search?" + urlencode({"q": 'engineering manager jobs germany'}),
+    ],
+    "bing_linkedin_ch_tech": [
+        "https://duckduckgo.com/html/?" + urlencode({"q": 'site:linkedin.com/jobs/view CTO Switzerland'}),
+        "https://www.google.com/search?" + urlencode({"q": '"Chief Technology Officer" OR "Tech Director" Switzerland jobs', "num": "20"}),
+    ],
+    "ddg_linkedin_at": [
+        "https://www.bing.com/search?" + urlencode({"q": 'site:linkedin.com/jobs/view CTO Austria', "count": "20"}),
+        "https://www.google.com/search?" + urlencode({"q": 'site:linkedin.com/jobs/view "VP Engineering" Austria', "num": "20"}),
+    ],
+    "ddg_linkedin_de": [
+        "https://www.bing.com/search?" + urlencode({"q": 'site:linkedin.com/jobs/view "Head of Engineering" Germany', "count": "20"}),
+        "https://www.google.de/search?" + urlencode({"q": 'site:linkedin.com/jobs/view "Director of Engineering" Germany', "num": "20"}),
+    ],
+    "ecosia_linkedin_de": [
+        "https://www.bing.com/search?" + urlencode({"q": 'site:linkedin.com/jobs/view engineering germany', "count": "20"}),
+        "https://duckduckgo.com/html/?" + urlencode({"q": 'germany jobs engineering linkedin'}),
+    ],
+    "ecosia_jobs_at": [
+        "https://duckduckgo.com/html/?" + urlencode({"q": 'site:stepstone.at jobs "Austria"'}),
+        "https://www.bing.com/search?" + urlencode({"q": 'site:jobs.ch engineering Austria', "count": "20"}),
+    ],
+    "ddg_stepstone_de": [
+        "https://www.bing.com/search?" + urlencode({"q": 'site:stepstone.de "Head of Engineering" Germany', "count": "20"}),
+        "https://www.google.de/search?" + urlencode({"q": 'site:stepstone.de CTO OR "VP Engineering"', "num": "20"}),
+    ],
+    "bing_engineering_at": [
+        "https://www.google.com/search?" + urlencode({"q": 'engineering jobs Vienna Austria', "num": "20"}),
+        "https://duckduckgo.com/html/?" + urlencode({"q": 'jobs Austria engineering Graz Linz'}),
+    ],
+    "bing_career_pages_de": [
+        "https://www.google.de/search?" + urlencode({"q": 'careers siemens OR sap OR boehringer germany engineering', "num": "20"}),
+        "https://duckduckgo.com/html/?" + urlencode({"q": 'tech company careers germany engineering'}),
+    ],
+    "bing_tech_company_at": [
+        "https://www.google.at/search?" + urlencode({"q": 'engineering opportunities Vienna Austria careers', "num": "20"}),
+        "https://duckduckgo.com/html/?" + urlencode({"q": 'join engineering team austria vienna'}),
+    ],
+    "google_xing_de": [
+        "https://www.bing.com/search?" + urlencode({"q": 'site:xing.com "VP Engineering" Germany', "count": "20"}),
+        "https://duckduckgo.com/html/?" + urlencode({"q": 'site:xing.com jobs CTO germany'}),
+    ],
+    "bing_xing_de": [
+        "https://www.google.de/search?" + urlencode({"q": 'site:xing.com engineering leader germany berlin', "num": "20"}),
+        "https://duckduckgo.com/html/?" + urlencode({"q": 'xing jobs germany engineering manager'}),
+    ],
+    "bing_indeed_de": [
+        "https://www.google.de/search?" + urlencode({"q": 'site:indeed.de engineering jobs germany', "num": "20"}),
+        "https://duckduckgo.com/html/?" + urlencode({"q": 'site:indeed.de Head of Engineering'}),
+    ],
+    "google_vienna_jobs": [
+        "https://www.bing.com/search?" + urlencode({"q": '"Vienna" "engineering" jobs Austria', "count": "20"}),
+        "https://duckduckgo.com/html/?" + urlencode({"q": 'vienna austria engineering leadership'}),
+    ],
+    "bing_berlin_tech": [
+        "https://www.google.de/search?" + urlencode({"q": 'Berlin engineering manager OR tech lead jobs', "num": "20"}),
+        "https://duckduckgo.com/html/?" + urlencode({"q": 'berlin germany CTO OR "VP Engineering"'}),
+    ],
+    "bing_zurich_jobs": [
+        "https://www.google.ch/search?" + urlencode({"q": 'Zurich Switzerland engineering leadership jobs', "num": "20"}),
+        "https://duckduckgo.com/html/?" + urlencode({"q": 'zurich switzerland engineering jobs'}),
+    ],
+    "bing_linkedin_diverse_at": [
+        "https://duckduckgo.com/html/?" + urlencode({"q": 'site:linkedin.com Austria engineering leadership'}),
+        "https://www.google.at/search?" + urlencode({"q": 'site:linkedin.com/jobs/view Austria technology', "num": "20"}),
+    ],
+    "ddg_tech_dach": [
+        "https://www.bing.com/search?" + urlencode({"q": '"engineering director" OR "VP of engineering" DACH', "count": "20"}),
+        "https://www.google.com/search?" + urlencode({"q": 'engineering director DACH 2025', "num": "20"}),
+    ],
 }
 
 # Rotate through a small pool of realistic browser UAs to reduce fingerprinting.
@@ -211,6 +511,111 @@ _BASE_HEADERS = {
 _last_fetch: dict[str, float] = {}
 _MIN_DELAY = 2.0   # seconds between requests to the same host
 _MAX_JITTER = 2.0  # additional random jitter (uniform)
+
+# =========================================================================
+# Token Bucket Rate Limiter (pre-emptive, prevents 429 entirely)
+# =========================================================================
+
+class TokenBucket:
+    """
+    Token bucket rate limiter for a domain family.
+    
+    Prevents exceeding rate limits by enforcing a "fill rate" (tokens/second).
+    - Each request consumes 1 token.
+    - Tokens refill over time at the specified rate.
+    - Requests are blocked until a token is available.
+    - No 429s, no retries — just honest rate limiting.
+    
+    Example: TokenBucket(refill_rate=0.1) allows 1 request per 10 seconds.
+    """
+    
+    def __init__(self, refill_rate: float, capacity: int = 1):
+        """
+        Initialize token bucket.
+        
+        Args:
+            refill_rate: tokens per second (e.g., 0.1 = 1 request per 10s)
+            capacity: max tokens in bucket (default 1 for strict cadence)
+        """
+        self.refill_rate = refill_rate  # tokens/second
+        self.capacity = capacity
+        self.tokens = float(capacity)
+        self.last_refill_time = time.monotonic()
+    
+    def _refill(self) -> None:
+        """Add tokens based on elapsed time since last refill."""
+        now = time.monotonic()
+        elapsed = now - self.last_refill_time
+        tokens_to_add = elapsed * self.refill_rate
+        self.tokens = min(self.capacity, self.tokens + tokens_to_add)
+        self.last_refill_time = now
+    
+    def consume(self, tokens: float = 1.0) -> float:
+        """
+        Consume tokens, waiting if necessary.
+        
+        Returns: seconds waited (0 if token was available immediately)
+        """
+        wait_time = 0.0
+        while self.tokens < tokens:
+            self._refill()
+            # Calculate time needed to accumulate required tokens
+            deficit = tokens - self.tokens
+            wait_seconds = deficit / self.refill_rate
+            if wait_seconds > 0.01:
+                time.sleep(wait_seconds)
+                wait_time += wait_seconds
+            self._refill()
+        self.tokens -= tokens
+        return wait_time
+
+
+# Per-domain-family rate limiters (configured by source type)
+_rate_limiters: dict[str, TokenBucket] = {}
+
+_RATE_LIMIT_CONFIG = {
+    # Google: VERY aggressive per-IP rate limit — apply extreme caution
+    # Experience shows Google blocks quickly even at 0.15 req/s.
+    # Setting to 0.02 req/s (~1 request per 50 seconds) for absolute safety.
+    "google": 0.02,  # ~1 request per 50 seconds
+    # Bing: moderate limit
+    "bing.com": 0.15,  # ~1 request per 6-7 seconds
+    # DuckDuckGo: friendly endpoint
+    "duckduckgo.com": 0.20,  # ~1 request per 5 seconds
+    # LinkedIn: their guest API is stable
+    "linkedin.com": 0.50,  # ~1 request per 2 seconds
+    # Direct job boards
+    "stepstone.at": 1.0,  # ~1 request per second
+    "stepstone.de": 1.0,
+    "karriere.at": 1.0,
+    "jobs.ch": 1.0,
+    "xing.com": 1.0,
+    "arbeitnow.com": 1.0,
+    # Default for unknown hosts
+    "_default": 0.5,  # ~1 request per 2 seconds
+}
+
+
+def _get_rate_limiter(domain_family: str) -> TokenBucket:
+    """Get or create rate limiter for a domain family."""
+    if domain_family not in _rate_limiters:
+        rate = _RATE_LIMIT_CONFIG.get(domain_family, _RATE_LIMIT_CONFIG["_default"])
+        _rate_limiters[domain_family] = TokenBucket(refill_rate=rate)
+    return _rate_limiters[domain_family]
+
+
+def _domain_family(url: str) -> str:
+    """Return a canonical domain-family key for rate limiting (e.g. all google.* → 'google')."""
+    netloc = urlparse(url).netloc.lower()
+    if re.search(r"\bgoogle\.", netloc):
+        return "google"
+    parts = netloc.split(".")
+    return ".".join(parts[-2:]) if len(parts) >= 2 else netloc
+
+
+def _is_google_url(url: str) -> bool:
+    """Return True when URL host belongs to Google search domains."""
+    return bool(re.search(r"\bgoogle\.", urlparse(url).netloc.lower()))
 
 
 def _ssl_verify_option() -> str | bool:
@@ -244,8 +649,60 @@ def _polite_delay(url: str) -> None:
     _last_fetch[host] = time.monotonic()
 
 
+def _parse_retry_after(response: requests.Response) -> int | None:
+    """
+    Extract Retry-After header from response (RFC 7231).
+    Format: Retry-After: <integer_seconds>  (most common) or <HTTP-date>.
+    This function handles integer seconds format.
+    """
+    retry_after = response.headers.get("Retry-After", "").strip()
+    if not retry_after:
+        return None
+    try:
+        return max(1, int(retry_after))
+    except ValueError:
+        # If not an integer, likely HTTP-date format; not parsed here.
+        return None
+
+
+def _exponential_backoff_delay(attempt: int, base: float = 1.0, max_delay: float = 60.0) -> float:
+    """
+    Calculate exponential backoff delay with jitter to prevent thundering herd.
+    
+    Formula: delay = min(base * 2^attempt + jitter, max_delay)
+    Jitter: random [0, delay] for stochastic spreading.
+    
+    Examples:
+      attempt=0: base=1s → 1*2^0 = 1s + jitter up to 1s = up to 2s total
+      attempt=1: 1*2^1 = 2s + jitter up to 2s = up to 4s total
+      attempt=2: 1*2^2 = 4s + jitter up to 4s = up to 8s total
+    """
+    delay = min(base * (2 ** attempt), max_delay)
+    jitter = random.uniform(0, delay)
+    return delay + jitter
+
+
 def fetch(url: str, retries: int = 3) -> str | None:
-    """HTTP GET with UA rotation, per-host polite delay, and retry logic."""
+    """
+    HTTP GET with pre-emptive rate limiting (token bucket).
+    
+    Rate limiting prevents 429 errors entirely by enforcing domain-family
+    limits BEFORE making requests. No skipping, no blocking — just honest
+    request pacing.
+    
+    This uses token bucket algorithm: each domain family has a refill rate
+    (tokens/second). Each request consumes 1 token. If no tokens available,
+    we wait until one is assigned. Prevents exceeding server rate limits.
+    """
+    fam = _domain_family(url)
+    limiter = _get_rate_limiter(fam)
+    
+    # APPLY RATE LIMIT: wait if necessary, then consume 1 token
+    # This is the key pre-emptive protection against 429s
+    wait_time = limiter.consume(1.0)
+    if wait_time > 0.1:
+        print(f"  Rate limiter on {fam}: waited {wait_time:.1f}s")
+
     session = requests.Session()
     headers = dict(_BASE_HEADERS)
     headers["User-Agent"] = random.choice(_USER_AGENTS)
@@ -266,13 +723,25 @@ def fetch(url: str, retries: int = 3) -> str | None:
             if r.status_code == 200:
                 return r.text
             print(f"  HTTP {r.status_code} for {url}")
-            if r.status_code in (403, 429):
-                # Blocked — rotate UA and wait longer before retry
-                headers["User-Agent"] = random.choice(_USER_AGENTS)
-                session.headers.update(headers)
-                time.sleep(8 + random.uniform(0, 4))
-                if attempt == retries - 1:
-                    break
+            # With pre-emptive rate limiting, 429 should be extremely rare.
+            # If we do get one, it's likely a different rate limit (per-IP, per-API-key, etc.)
+            # Log it for debugging but don't retry (rate limiter did its job).
+            if r.status_code == 429:
+                print(f"  ⚠️  Unexpected 429 despite rate limiting. Possible per-IP limit on {fam}.")
+                return None
+            elif r.status_code in (403, 503):
+                # Temporary issues — retry with backoff
+                if attempt < retries - 1:
+                    backoff_delay = _exponential_backoff_delay(attempt, base=1.0, max_delay=20.0)
+                    print(f"  Retrying in {backoff_delay:.1f}s...")
+                    time.sleep(backoff_delay)
+                    headers["User-Agent"] = random.choice(_USER_AGENTS)
+                    session.headers.update(headers)
+                    continue
+                return None
+            else:
+                # Other error codes: don't retry
+                return None
         except requests.exceptions.SSLError as exc:
             print(f"  SSL attempt {attempt + 1} failed: {exc}")
             # Optional fallback for environments with broken trust stores.
@@ -425,6 +894,51 @@ def _parse_searxng_results(payload: dict, source_name: str) -> list[dict]:
     return uniq
 
 
+def _parse_google_cse_results(payload: dict, source_name: str) -> list[dict]:
+    """Normalize Google Custom Search API items into job dict rows."""
+    rows: list[dict] = []
+    candidates = payload.get("items")
+    if not isinstance(candidates, list):
+        return rows
+
+    for item in candidates:
+        if not isinstance(item, dict):
+            continue
+
+        title = (item.get("title") or "").strip()
+        link = (item.get("link") or "").strip()
+        snippet = (item.get("snippet") or "").strip()
+
+        if not title or not link:
+            continue
+        if not _expected_job_url(link, source_name):
+            continue
+
+        m_at = re.search(r"(?:at|bei|@)\s+([A-Z][\w\s&.]+?)(?:\s*[·|\-,]|$)", snippet)
+        company = m_at.group(1).strip() if m_at else ""
+
+        rows.append({
+            "title": title,
+            "company": company,
+            "location": "",
+            "source_name": source_name,
+            "source_url": link,
+            "application_url": link,
+            "publish_date": "",
+            "salary_text": "",
+            "language_hint": "en",
+        })
+
+    seen: set[str] = set()
+    uniq: list[dict] = []
+    for r in rows:
+        k = (r.get("application_url") or r.get("source_url") or "").strip().lower()
+        if k and k not in seen:
+            seen.add(k)
+            uniq.append(r)
+    return uniq
+
+
 def _fetch_google_proxy_via_provider(source_url: str, source_name: str) -> list[dict]:
     """
     Optional provider-backed Google fetch for anti-bot resilience.
@@ -432,6 +946,8 @@ def _fetch_google_proxy_via_provider(source_url: str, source_name: str) -> list[
     Env vars:
       - SCRAPER_SEARXNG_URL
       - SCRAPER_SEARXNG_KEY
+            - SCRAPER_GOOGLE_CSE_KEY
+            - SCRAPER_GOOGLE_CSE_CX
       - SCRAPER_SERPAPI_KEY
       - SCRAPER_ZENSERP_KEY
     """
@@ -467,6 +983,32 @@ def _fetch_google_proxy_via_provider(source_url: str, source_name: str) -> list[
                 print(f"  SearXNG HTTP {resp.status_code} for {source_name}")
         except requests.RequestException as exc:
             print(f"  SearXNG error for {source_name}: {exc}")
+        except ValueError:
+            pass
+
+    # Google Custom Search JSON API (official API, avoids direct SERP scraping).
+    # Requires both API key and CSE engine ID (cx).
+    google_cse_key = (os.getenv("SCRAPER_GOOGLE_CSE_KEY") or "").strip()
+    google_cse_cx = (os.getenv("SCRAPER_GOOGLE_CSE_CX") or "").strip()
+    if google_cse_key and google_cse_cx:
+        try:
+            params = {
+                "key": google_cse_key,
+                "cx": google_cse_cx,
+                "q": query,
+                "num": str(max(1, min(num, 10))),
+            }
+            verify_opt = _ssl_verify_option()
+            resp = requests.get("https://customsearch.googleapis.com/customsearch/v1", params=params, timeout=30, verify=verify_opt)
+            if resp.status_code == 200:
+                jobs = _parse_google_cse_results(resp.json(), source_name)
+                if jobs:
+                    print(f"  Google CSE: {len(jobs)} jobs")
+                    return jobs
+            else:
+                print(f"  Google CSE HTTP {resp.status_code} for {source_name}")
+        except requests.RequestException as exc:
+            print(f"  Google CSE error for {source_name}: {exc}")
         except ValueError:
             pass
 
@@ -1011,9 +1553,20 @@ def parse_google_jobs(html: str, source_name: str) -> list[dict]:
 
     # Enrich google-discovered entries by scraping destination career pages
     # directly (best effort, capped to keep runtime bounded).
-    for row in results[:8]:
+    # LinkedIn and Xing block direct scraping (JS wall / 403), so skip them
+    # entirely to avoid wasting 20-60 s per URL on failed enrichment calls.
+    _SKIP_ENRICH_DOMAINS = ("linkedin.com", "xing.com")
+    _enrich_max = int(os.getenv("SCRAPER_ENRICH_MAX", "2"))
+    enrich_count = 0
+    for row in results:
+        if enrich_count >= _enrich_max:
+            break
+        url = row.get("application_url") or row.get("source_url") or ""
+        if any(d in url for d in _SKIP_ENRICH_DOMAINS):
+            continue
         enriched = enrich_from_company_page(row)
         row.update(enriched)
+        enrich_count += 1
     return results
 
 
@@ -1219,6 +1772,64 @@ def parse_jobs_ch(html: str, source_name: str) -> list[dict]:
     return jobs
 
 
+def parse_linkedin_guest_api(html: str, source_name: str) -> list[dict]:
+    """
+    Parse LinkedIn's public guest API HTML fragment response into job dicts.
+    Endpoint: /jobs-guest/jobs/api/seeMoreJobPostings/search
+    Returns job card HTML without auth. Tracking query params are stripped from URLs.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    jobs: list[dict] = []
+
+    for li in soup.find_all("li"):
+        # Locate card by the entity URN attribute — more stable than class names.
+        div = li.find("div", attrs={"data-entity-urn": re.compile(r":jobPosting:\d+")})
+        if not div:
+            continue
+
+        entity_urn = div.get("data-entity-urn", "")
+        m = re.search(r":jobPosting:(\d+)", entity_urn)
+        if not m:
+            continue
+        job_id = m.group(1)
+
+        # URL: strip tracking query params from the anchor href.
+        link_el = li.find("a", href=True)
+        raw_href = link_el["href"] if link_el else ""
+        clean_url = raw_href.split("?")[0] if raw_href else f"https://www.linkedin.com/jobs/view/{job_id}/"
+
+        # Title: h3.base-search-card__title, fall back to sr-only span in link.
+        h3 = li.find("h3", class_=lambda c: c and "base-search-card__title" in c)
+        title = h3.get_text(strip=True) if h3 else ""
+        if not title and link_el:
+            sr = link_el.find("span", class_=lambda c: c and "sr-only" in c)
+            title = sr.get_text(strip=True) if sr else ""
+        if not title:
+            continue
+
+        # Company from h4.base-search-card__subtitle.
+        h4 = li.find("h4", class_=lambda c: c and "base-search-card__subtitle" in c)
+        company = h4.get_text(strip=True) if h4 else ""
+
+        # Location from .job-search-card__location.
+        loc_el = li.find(class_=lambda c: c and "job-search-card__location" in c)
+        location = loc_el.get_text(strip=True) if loc_el else ""
+
+        jobs.append({
+            "title": title,
+            "company": company,
+            "location": location,
+            "source_name": source_name,
+            "source_url": clean_url,
+            "application_url": clean_url,
+            "publish_date": "",
+            "salary_text": "",
+            "language_hint": "en",
+        })
+
+    return jobs
+
+
 PARSER_MAP = {
     # html sources
     "stepstone_at_cto":    parse_stepstone,
@@ -1258,6 +1869,13 @@ def main() -> None:
     min_per_source = int(os.getenv("SCRAPER_MIN_PER_SOURCE", "2"))
     min_real_per_source = int(os.getenv("SCRAPER_MIN_REAL_PER_SOURCE", "3"))
     enable_backfill = os.getenv("SCRAPER_SOURCE_BACKFILL", "true").lower() in {"1", "true", "yes"}
+    # Google proxy handling mode:
+    # - provider_only (default): use SearXNG/SerpAPI/Zenserp only; never direct Google fetch
+    # - hybrid: try provider first, then allow direct Google fetch
+    # - direct: direct Google fetch path only
+    # - off: skip Google proxy sources entirely
+    google_mode = (os.getenv("SCRAPER_GOOGLE_MODE", "provider_only") or "provider_only").strip().lower()
+    avoid_google_fallbacks = os.getenv("SCRAPER_AVOID_GOOGLE_FALLBACKS", "true").lower() in {"1", "true", "yes"}
     ar_now_cache: list[dict] | None = None
 
     for src in SOURCES:
@@ -1268,29 +1886,50 @@ def main() -> None:
 
         content = None
 
-        # Optional provider APIs (SerpAPI/Zenserp) for Google proxies.
-        # This avoids direct Google anti-bot limits in CI environments.
         if src_type == "google_proxy":
-            provider_jobs = _fetch_google_proxy_via_provider(url, name)
-            if provider_jobs:
-                jobs = [j for j in provider_jobs if j.get("title")]
-                stats[name] = len(jobs)
-                all_jobs.extend(jobs)
+            if google_mode == "off":
+                print("  Skipping Google proxy (SCRAPER_GOOGLE_MODE=off)")
+                stats[name] = 0
                 continue
 
-        # Bing proxy pages are more reliable in RSS mode than HTML mode.
-        if src_type in {"search_proxy", "google_proxy"} and "bing.com/search" in url:
-            content = fetch(_to_bing_rss_url(url), retries=2)
+            # Provider-backed fetches avoid direct Google anti-bot/IP rate limits.
+            if google_mode in {"provider_only", "hybrid"}:
+                provider_jobs = _fetch_google_proxy_via_provider(url, name)
+                if provider_jobs:
+                    jobs = [j for j in provider_jobs if j.get("title")]
+                    stats[name] = len(jobs)
+                    all_jobs.extend(jobs)
+                    continue
+                if google_mode == "provider_only":
+                    print("  No provider result; skipping direct Google fetch (provider_only mode)")
+                    stats[name] = 0
+                    continue
 
+        # Optional: skip search_proxy sources (Bing/DDG/Ecosia queries).
+        # These sources have issues:
+        #   - Timeout failures on Bing/DDG (causing hangs)
+        #   - 403 from Ecosia
+        #   - Fallback to Google which 429s
+        #   - Zero net yield (Google alternatives return 0 jobs anyway)
+        # Default is to skip; set SCRAPER_SKIP_SEARCH_PROXIES=0 to re-enable.
+        if src_type == "search_proxy" and os.getenv("SCRAPER_SKIP_SEARCH_PROXIES", "true").lower() in {"1", "true", "yes"}:
+            print("  Skipping search proxy (unreliable, timeouts/403s/low-yield)")
+            stats[name] = 0
+            continue
+
+        # NOTE: Bing RSS mode (format=rss) is intentionally NOT used here.
+        # Testing showed Bing RSS completely ignores the search query and returns
+        # unrelated results (e.g. French hardware store pages). Always use HTML mode.
         if not content:
             content = fetch(url)
         if not content and name in SOURCE_URL_FALLBACKS:
             for alt in SOURCE_URL_FALLBACKS[name]:
+                # Prevent indirect Google 429s via search-proxy fallback chains.
+                if avoid_google_fallbacks and src_type == "search_proxy" and _is_google_url(alt):
+                    print(f"  Skipping Google fallback URL for {name}")
+                    continue
                 print(f"  Retry via alternate URL for {name}")
-                if "bing.com/search" in alt:
-                    content = fetch(_to_bing_rss_url(alt), retries=2)
-                if not content:
-                    content = fetch(alt, retries=2)
+                content = fetch(alt, retries=2)
                 if content:
                     url = alt
                     break
@@ -1306,6 +1945,9 @@ def main() -> None:
         elif src_type == "json_api":
             jobs = parse_json_jobs(content, name)
             print(f"  JSON API: {len(jobs)} jobs")
+        elif src_type == "linkedin_api":
+            jobs = parse_linkedin_guest_api(content, name)
+            print(f"  LinkedIn API: {len(jobs)} jobs")
         elif src_type in {"google_proxy", "search_proxy"}:
             if _looks_like_xml(content):
                 jobs = parse_rss(content, name)
@@ -1350,12 +1992,13 @@ def main() -> None:
                 for j in jobs
             }
             for alt in SOURCE_URL_FALLBACKS[name]:
+                # Avoid direct Google fallback URLs during retry parsing when requested.
+                # This closes the last path that could still generate Google 429s.
+                if avoid_google_fallbacks and src_type in {"google_proxy", "search_proxy"} and _is_google_url(alt):
+                    print(f"  Skipping Google fallback URL for {name} (retry parsing)")
+                    continue
                 print(f"  Retry parsing via alternate URL for {name}")
-                alt_content = None
-                if "bing.com/search" in alt:
-                    alt_content = fetch(_to_bing_rss_url(alt), retries=2)
-                if not alt_content:
-                    alt_content = fetch(alt, retries=2)
+                alt_content = fetch(alt, retries=2)
                 if not alt_content:
                     continue
 
@@ -1368,8 +2011,11 @@ def main() -> None:
                     alt_jobs = parse_rss(alt_content, name)
                 elif src_type == "json_api":
                     alt_jobs = parse_json_jobs(alt_content, name)
+                elif src_type == "linkedin_api":
+                    alt_jobs = parse_linkedin_guest_api(alt_content, name)
                 else:
                     alt_jobs = []
+
                 alt_jobs = [j for j in alt_jobs if j.get("title")]
 
                 for row in alt_jobs:
@@ -1432,9 +2078,33 @@ def main() -> None:
     all_jobs = _unique
     print(f"After raw dedup: {len(all_jobs)} unique jobs")
 
+    # Count jobs by destination domain family for comparison reporting.
+    family_stats: dict[str, int] = {}
+    for j in all_jobs:
+        fam = _source_family(j)
+        family_stats[fam] = family_stats.get(fam, 0) + 1
+
+    linkedin_count = family_stats.get("linkedin", 0)
+    karriere_count = family_stats.get("karriere.at", 0)
+    google_sources_count = sum(
+        v for k, v in stats.items()
+        if k.startswith(("google_", "bing_", "ddg_", "ecosia_"))
+    )
+    print(f"\nFamily breakdown: {family_stats}")
+    print(f"\n{'='*50}")
+    print(f"  Google/Bing/DDG proxy sources total  : {google_sources_count}")
+    print(f"  LinkedIn destination ADs             : {linkedin_count}")
+    print(f"  Karriere.at destination ADs          : {karriere_count}")
+    if linkedin_count > karriere_count:
+        print(f"  ✅ LinkedIn ({linkedin_count}) > Karriere ({karriere_count})")
+    else:
+        print(f"  ❌ LinkedIn ({linkedin_count}) <= Karriere ({karriere_count}) — check proxy sources")
+    print(f"{'='*50}\n")
+
     output = {
         "date": str(date.today()),
         "stats": stats,
+        "family_stats": family_stats,
         "jobs": all_jobs[:200],  # cap to limit downstream token use
     }
     out_path = "/tmp/jobs/jobs_raw.json"

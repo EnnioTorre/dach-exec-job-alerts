@@ -45,7 +45,6 @@ def ensure_label(label: str, color: str = "0075ca") -> bool:
 def format_body(data: dict) -> str:
     today = data.get("date", str(date.today()))
     jobs: list[dict] = data.get("jobs", [])
-    ai_enriched: bool = data.get("ai_enriched", False)
     stats: dict = data.get("source_stats", {})
     repo = os.environ.get("GITHUB_REPOSITORY", "")
 
@@ -55,8 +54,9 @@ def format_body(data: dict) -> str:
         f"**Sources scraped:** {len(stats)}",
         f"**Total raw listings:** {data.get('total_raw', '?')}",
         f"**After filter + dedup:** {data.get('total_deduped', '?')}",
+        "**Ranking:** weighted formula (distance 30% · language 30% · salary 20% · IT relevance 20%)",
+        f"**MCP/AI source merge:** {'✅ Yes' if data.get('extra_sources_merged') else '⚠️ No — Python sources only'}",
         f"**AI pre-rank cleanup:** {'✅ Yes' if data.get('ai_pre_rank_enriched') else '⚠️ No'}",
-        f"**AI enrichment:** {'✅ Yes (GitHub Models)' if ai_enriched else '⚠️ No — deterministic fallback'}",
         "",
     ]
 
@@ -90,73 +90,68 @@ def format_body(data: dict) -> str:
         return _is_job_ad_url(job.get("application_url") or job.get("source_url") or "")
 
     useful_jobs = [j for j in jobs if _looks_useful(j)]
-    english_jobs = [j for j in useful_jobs if (j.get("language_hint") or "").lower() == "en"]
-    non_english_jobs = [j for j in useful_jobs if (j.get("language_hint") or "").lower() != "en"]
-    digest_jobs = (english_jobs + non_english_jobs)[:10]
+    # Rank strictly by the weighted score (distance 30%, language 30%,
+    # salary 20%, IT relevance 20%) computed in rank_jobs.py.
+    digest_jobs = sorted(
+        useful_jobs,
+        key=lambda j: j.get("score", 0),
+        reverse=True,
+    )[:15]
 
-    # ---- Job table ----
-    if ai_enriched:
-        ai_jobs: list[dict] = data.get("ai_enrichment", {}).get("top_jobs", [])
-        if ai_jobs:
-            lines += [
-                "## 🏆 AI-Ranked Top Opportunities",
-                "",
-                "| # | Role | Company | Location | Score | Why Apply |",
-                "|---|------|---------|----------|-------|-----------|",
-            ]
-            # Build a quick lookup: (title, company) → application_url
-            url_map = {
-                (j.get("title", ""), j.get("company", "")): j.get("application_url") or j.get("source_url", "")
-                for j in jobs
-            }
-            for j in ai_jobs:
-                title = j.get("title", "N/A")
-                company = j.get("company", "N/A")
-                location = j.get("location", "N/A")
-                ai_score = j.get("ai_score", "")
-                why = j.get("why_apply", "")
-                url = url_map.get((title, company), "")
-                title_md = f"[{title}]({url})" if url else title
-                lines.append(f"| {j.get('rank', '')} | {title_md} | {company} | {location} | {ai_score} | {why} |")
-            lines.append("")
-    # Deterministic top-10 (always shown as a section; also sole section when AI unavailable)
-    if not ai_enriched or not data.get("ai_enrichment", {}).get("top_jobs"):
-        lines += [
-            "## 📋 Top Executive Roles (deterministic ranking)",
-            "",
-            "| # | Role | Company | Location | Lang | Score | Salary |",
-            "|---|------|---------|----------|------|-------|--------|",
-        ]
-        for i, j in enumerate(digest_jobs, 1):
-            title = j.get("title", "N/A")
-            company = j.get("company", "N/A")
-            location = j.get("location", "N/A")
-            lang = (j.get("language_hint") or "").lower() or "n/a"
-            score = j.get("score", "")
-            salary = j.get("salary_text") or "N/A"
-            url = j.get("application_url") or j.get("source_url", "")
-            title_md = f"[{title}]({url})" if url else title
-            lines.append(f"| {i} | {title_md} | {company} | {location} | {lang} | {score} | {salary} |")
-        lines.append("")
+    # ---- Top 15 ranked roles (weighted score) ----
+    lines += [
+        "## 🏆 Top 15 Ranked Roles",
+        "",
+        "_Weighted score = distance from Vienna 30% · language 30% · salary 20% · IT relevance 20% (0–5 scale)._",
+        "",
+        "| # | Role | Company | Location | Lang | Score | Salary |",
+        "|---|------|---------|----------|------|-------|--------|",
+    ]
+    for i, j in enumerate(digest_jobs, 1):
+        title = j.get("title", "N/A")
+        company = j.get("company", "N/A")
+        location = j.get("location", "N/A")
+        lang = (j.get("language_hint") or "").lower() or "n/a"
+        score = j.get("score", "")
+        salary = j.get("salary_text") or "N/A"
+        url = j.get("application_url") or j.get("source_url", "")
+        title_md = f"[{title}]({url})" if url else title
+        lines.append(f"| {i} | {title_md} | {company} | {location} | {lang} | {score} | {salary} |")
+    lines.append("")
 
     # ---- Source performance table ----
-    lines += [
-        "## 📊 Source Performance",
-        "",
-        "| Source | Listings | AI Quality | Recommendation |",
-        "|--------|----------|------------|----------------|",
-    ]
     ai_src_map = {
         s["source"]: s
         for s in (data.get("ai_enrichment") or {}).get("source_analysis", [])
     }
-    for src, count in sorted(stats.items(), key=lambda x: -x[1]):
-        ai_info = ai_src_map.get(src, {})
-        quality = ai_info.get("quality_rating", "—")
-        rec = ai_info.get("recommendation", "—")
-        note = ai_info.get("note", "")
-        rec_str = f"{rec} — {note}" if note else rec
-        lines.append(f"| `{src}` | {count} | {quality}/5 | {rec_str} |")
+    active_sources = sum(1 for c in stats.values() if c > 0)
+    total_listings = sum(stats.values())
+    lines += [
+        "## 📊 Source Performance",
+        "",
+        f"Sources used: **{len(stats)}** ({active_sources} returned listings) · "
+        f"total postings scraped: **{total_listings}**",
+        "",
+    ]
+    if ai_src_map:
+        lines += [
+            "| Source | Listings | AI Quality | Recommendation |",
+            "|--------|----------|------------|----------------|",
+        ]
+        for src, count in sorted(stats.items(), key=lambda x: -x[1]):
+            ai_info = ai_src_map.get(src, {})
+            quality = ai_info.get("quality_rating", "—")
+            rec = ai_info.get("recommendation", "—")
+            note = ai_info.get("note", "")
+            rec_str = f"{rec} — {note}" if note else rec
+            lines.append(f"| `{src}` | {count} | {quality}/5 | {rec_str} |")
+    else:
+        lines += [
+            "| Source | Listings |",
+            "|--------|----------|",
+        ]
+        for src, count in sorted(stats.items(), key=lambda x: -x[1]):
+            lines.append(f"| `{src}` | {count} |")
     lines += [
         "",
         "---",
@@ -185,69 +180,7 @@ def create_issue(title: str, body: str, labels: list[str]) -> bool:
             return True
     
     print(f"gh issue create failed:\n{result.stderr.strip()}", file=sys.stderr)
-
-    # Conflict fallback: if a digest issue with the same title already exists,
-    # append a refresh comment and keep the workflow green.
-    conflict_markers = ("409", "conflict", "already exists", "duplicate")
-    err_lower = (result.stderr or "").lower()
-    if any(m in err_lower for m in conflict_markers):
-        existing = find_open_issue_by_title(title)
-        if existing:
-            number = existing.get("number")
-            url = existing.get("url")
-            note = (
-                "Digest refresh attempted. The workflow detected an existing open "
-                "issue with the same title, so this run updated the thread instead "
-                "of creating a duplicate."
-            )
-            comment_ok = add_issue_comment(number, note)
-            if comment_ok:
-                print(f"Issue already exists; updated existing issue: {url}")
-                return True
-
     return False
-
-
-def find_open_issue_by_title(title: str) -> dict | None:
-    """Return an open issue that matches title exactly, if present."""
-    cmd = [
-        "gh",
-        "issue",
-        "list",
-        "--state",
-        "open",
-        "--limit",
-        "50",
-        "--search",
-        f'in:title "{title}"',
-        "--json",
-        "number,title,url",
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        return None
-
-    try:
-        items = json.loads(result.stdout or "[]")
-    except json.JSONDecodeError:
-        return None
-
-    for item in items:
-        if (item.get("title") or "").strip() == title.strip():
-            return item
-    return None
-
-
-def add_issue_comment(number: int, comment: str) -> bool:
-    """Append a comment to an existing issue."""
-    if not number:
-        return False
-    result = subprocess.run(
-        ["gh", "issue", "comment", str(number), "--body", comment],
-        capture_output=True,
-        text=True,
-    )
-    return result.returncode == 0
 
 
 def main() -> None:
@@ -267,9 +200,7 @@ def main() -> None:
             body_lines.append(f"- `{src}`: {count} listings")
         body = "\n".join(body_lines)
     else:
-        ai_enriched = data.get("ai_enriched", False)
-        marker = "AI-ranked" if ai_enriched else "auto-ranked"
-        title = f"[DACH Jobs] Top Exec Roles ({marker}) — {today}"
+        title = f"[DACH Jobs] Top Exec Roles (weighted-ranked) — {today}"
         body = format_body(data)
 
     # Pass labels only if they were successfully created

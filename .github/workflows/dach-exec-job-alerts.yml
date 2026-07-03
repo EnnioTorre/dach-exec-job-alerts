@@ -65,6 +65,9 @@ jobs:
           # Optional managed providers
           SCRAPER_SERPAPI_KEY: ${{ secrets.SCRAPER_SERPAPI_KEY }}
           SCRAPER_ZENSERP_KEY: ${{ secrets.SCRAPER_ZENSERP_KEY }}
+          # Optional Google Custom Search provider
+          SCRAPER_GOOGLE_CSE_KEY: ${{ secrets.SCRAPER_GOOGLE_CSE_KEY }}
+          SCRAPER_GOOGLE_CSE_CX: ${{ secrets.SCRAPER_GOOGLE_CSE_CX }}
 
       # ------------------------------------------------------------------
       # Stage 1b: optional AI pre-ranking enrichment (language/location/

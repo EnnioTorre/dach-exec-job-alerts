@@ -433,8 +433,9 @@ def score_job(job: dict) -> float:
     ss = salary_score(job.get("salary_text", ""))
     lang = language_score(job.get("language_hint", ""), job.get("company", ""))
     focus = it_management_focus_score(job.get("title", ""))
-    # Prioritize: English + Vienna proximity + higher salary + management.
-    raw = 0.28 * ls + 0.22 * ss + 0.30 * lang + 0.20 * focus
+    # Weighted formula: distance from Vienna 30%, language 30%,
+    # salary 20%, IT relevance 20%.
+    raw = 0.30 * ls + 0.30 * lang + 0.20 * ss + 0.20 * focus
     return round(max(1.0, min(5.0, raw)), 1)
 
 
@@ -565,12 +566,9 @@ def main() -> None:
         if len(capped) >= target_rank_count:
             break
 
-    # Preserve diversification constraints and strongly prefer English listings at the top.
-    capped = sorted(
-        capped,
-        key=lambda j: ((j.get("language_hint") or "").lower() == "en", j["score"]),
-        reverse=True,
-    )
+    # Order strictly by the weighted score (language is already weighted at
+    # 30% within the score, so no extra language bias is applied here).
+    capped = sorted(capped, key=lambda j: j["score"], reverse=True)
 
     print(f"Final ranked: {len(capped)}")
 
@@ -582,6 +580,8 @@ def main() -> None:
         "total_deduped": len(deduped),
         "ranked_source_count": len({j.get("source_name", "unknown") for j in capped}),
         "ai_pre_rank_enriched": ai_pre_rank,
+        "second_pass_count": data.get("second_pass_count", 0),
+        "extra_sources_merged": data.get("second_pass_count", 0) > 0,
         "jobs": capped,
     }
     out_path = "/tmp/jobs/jobs_ranked.json"
