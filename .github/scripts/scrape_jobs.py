@@ -1910,7 +1910,13 @@ def main() -> None:
     all_jobs = _unique
     print(f"After raw dedup: {len(all_jobs)} unique jobs")
 
-    # Count jobs by destination domain family for comparison reporting.
+    # Authoritative per-source usefulness: how many de-duplicated jobs each
+    # source contributed to the full pool (computed BEFORE the [:200] downstream
+    # cap so late-listed sources are not falsely reported as dead weight).
+    deduped_source_stats: dict[str, int] = {}
+    for j in all_jobs:
+        src = j.get("source_name", "unknown")
+        deduped_source_stats[src] = deduped_source_stats.get(src, 0) + 1
     family_stats: dict[str, int] = {}
     for j in all_jobs:
         fam = _source_family(j)
@@ -1937,6 +1943,7 @@ def main() -> None:
         "date": str(date.today()),
         "stats": stats,
         "family_stats": family_stats,
+        "deduped_source_stats": deduped_source_stats,
         "jobs": all_jobs[:200],  # cap to limit downstream token use
     }
     out_path = "/tmp/jobs/jobs_raw.json"

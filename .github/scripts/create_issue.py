@@ -120,39 +120,119 @@ def format_body(data: dict) -> str:
     lines.append("")
 
     # ---- Source performance table ----
+    # Show the true funnel per source, not just the raw scrape count:
+    #   Scraped    → what the source pulled in (raw, pre-dedup)
+    #   Unique     → de-duplicated jobs it contributed to the pool (the real
+    #                "what was useful" signal; from rank_jobs deduped_source_stats)
+    #   Shortlist  → survived into the final ranked pool (data["jobs"], top-N capped)
+    #   Top 15     → made the final digest above
+    # A source that scrapes a lot but contributes 0 Unique is dead weight;
+    # a source with high Unique but 0 Shortlist just ranked below the cutoff.
     ai_src_map = {
         s["source"]: s
         for s in (data.get("ai_enrichment") or {}).get("source_analysis", [])
     }
+
+    def _count_by_source(items: list[dict]) -> dict:
+        counts: dict[str, int] = {}
+        for j in items:
+            src = j.get("source_name", "unknown")
+            counts[src] = counts.get(src, 0) + 1
+        return counts
+
+    # Prefer the ranker's deduped per-source counts; fall back to shortlist if absent.
+    unique_by_source: dict = data.get("deduped_source_stats", {}) or {}
+    shortlist_by_source = _count_by_source(jobs)
+    top15_by_source = _count_by_source(digest_jobs)
+    has_unique = bool(unique_by_source)
+
     active_sources = sum(1 for c in stats.values() if c > 0)
-    total_listings = sum(stats.values())
+    if has_unique:
+        productive_sources = sum(1 for s in stats if unique_by_source.get(s, 0) > 0)
+        dead_weight = [s for s, c in stats.items() if c > 0 and unique_by_source.get(s, 0) == 0]
+    else:
+        productive_sources = sum(1 for s in stats if shortlist_by_source.get(s, 0) > 0)
+        dead_weight = [s for s, c in stats.items() if c > 0 and shortlist_by_source.get(s, 0) == 0]
+    total_scraped = sum(stats.values())
+    total_unique = sum(unique_by_source.values()) if has_unique else sum(shortlist_by_source.values())
+
     lines += [
         "## 📊 Source Performance",
         "",
-        f"Sources used: **{len(stats)}** ({active_sources} returned listings) · "
-        f"total postings scraped: **{total_listings}**",
+        f"**{len(stats)}** sources configured · **{active_sources}** returned listings · "
+        f"**{productive_sources}** contributed unique jobs.",
+        f"Funnel: **{total_scraped}** scraped → **{total_unique}** unique (after filter + dedup) "
+        f"→ **{len(jobs)}** shortlisted → **{len(digest_jobs)}** in the Top 15 digest.",
+        "",
+        "_Unique = de-duplicated jobs the source contributed (the real usefulness signal). "
+        "Shortlist = made the final ranked pool. Yield = Unique ÷ Scraped. "
+        "Sources are ranked by usefulness (Unique)._",
         "",
     ]
+
+    # Order by usefulness: Unique desc, then Shortlist desc, then Scraped desc.
+    ordered = sorted(
+        stats.items(),
+        key=lambda x: (
+            unique_by_source.get(x[0], 0),
+            shortlist_by_source.get(x[0], 0),
+            x[1],
+        ),
+        reverse=True,
+    )
+
+    def _yield_str(scraped: int, useful: int) -> str:
+        if scraped <= 0:
+            return "—"
+        return f"{round(100 * useful / scraped)}%"
+
     if ai_src_map:
         lines += [
-            "| Source | Listings | AI Quality | Recommendation |",
-            "|--------|----------|------------|----------------|",
+            "| Source | Scraped | Unique | Shortlist | Top 15 | Yield | AI Quality | Recommendation |",
+            "|--------|--------:|-------:|----------:|-------:|------:|------------|----------------|",
         ]
-        for src, count in sorted(stats.items(), key=lambda x: -x[1]):
+        for src, scraped in ordered:
+            unique = unique_by_source.get(src, 0)
+            shortlist = shortlist_by_source.get(src, 0)
+            top15 = top15_by_source.get(src, 0)
             ai_info = ai_src_map.get(src, {})
             quality = ai_info.get("quality_rating", "—")
             rec = ai_info.get("recommendation", "—")
             note = ai_info.get("note", "")
             rec_str = f"{rec} — {note}" if note else rec
-            lines.append(f"| `{src}` | {count} | {quality}/5 | {rec_str} |")
+            flag = " 🏆" if top15 else (" ⚠️" if scraped > 0 and unique == 0 else "")
+            lines.append(
+                f"| `{src}`{flag} | {scraped} | {unique} | {shortlist} | {top15} | "
+                f"{_yield_str(scraped, unique)} | {quality}/5 | {rec_str} |"
+            )
     else:
         lines += [
-            "| Source | Listings |",
-            "|--------|----------|",
+            "| Source | Scraped | Unique | Shortlist | Top 15 | Yield |",
+            "|--------|--------:|-------:|----------:|-------:|------:|",
         ]
-        for src, count in sorted(stats.items(), key=lambda x: -x[1]):
-            lines.append(f"| `{src}` | {count} |")
+        for src, scraped in ordered:
+            unique = unique_by_source.get(src, 0)
+            shortlist = shortlist_by_source.get(src, 0)
+            top15 = top15_by_source.get(src, 0)
+            flag = " 🏆" if top15 else (" ⚠️" if scraped > 0 and unique == 0 else "")
+            lines.append(
+                f"| `{src}`{flag} | {scraped} | {unique} | {shortlist} | {top15} | "
+                f"{_yield_str(scraped, unique)} |"
+            )
+
+    if dead_weight:
+        preview = ", ".join(f"`{s}`" for s in dead_weight[:12])
+        more = f" (+{len(dead_weight) - 12} more)" if len(dead_weight) > 12 else ""
+        lines += [
+            "",
+            f"⚠️ **Dead weight** ({len(dead_weight)} scraped but contributed 0 unique jobs): "
+            f"{preview}{more}",
+        ]
+
     lines += [
+        "",
+        "_🏆 = contributed at least one role to the Top 15 · "
+        "⚠️ = scraped but contributed nothing unique (all duplicates/filtered)._",
         "",
         "---",
         f"*Auto-generated by [dach-exec-job-alerts](https://github.com/{repo}/actions) · {today}*",

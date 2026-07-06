@@ -572,9 +572,23 @@ def main() -> None:
 
     print(f"Final ranked: {len(capped)}")
 
+    # Per-source unique contribution (after filter + dedup, BEFORE the top-N
+    # shortlist cap). This is the honest "what was useful" signal: how many
+    # de-duplicated jobs each source actually contributed to the pool.
+    # Prefer the scraper's authoritative count (computed over the FULL pool
+    # before the raw 200-job cap); fall back to this ranker's local view.
+    deduped_source_stats: dict = data.get("deduped_source_stats") or {}
+    if not deduped_source_stats:
+        computed: dict[str, int] = {}
+        for j in deduped:
+            src = j.get("source_name", "unknown")
+            computed[src] = computed.get(src, 0) + 1
+        deduped_source_stats = computed
+
     output = {
         "date": data.get("date", str(date.today())),
         "source_stats": data.get("stats", {}),
+        "deduped_source_stats": deduped_source_stats,
         "total_raw": len(jobs),
         "total_relevant": len(relevant),
         "total_deduped": len(deduped),
