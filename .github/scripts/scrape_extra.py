@@ -28,6 +28,7 @@ from scrape_jobs import (
     parse_karriere_at,
     parse_google_jobs,
     parse_jobs_ch,
+    _infer_language_hint,
 )
 
 EXTRA_SOURCES_PATH = "/tmp/jobs/extra_sources.json"
@@ -96,7 +97,7 @@ def scrape_url(url: str, name: str) -> list[dict]:
                     "application_url": href,
                     "publish_date": "",
                     "salary_text": "",
-                    "language_hint": "en",
+                    "language_hint": _infer_language_hint(text),
                 })
         print(f"  Generic heading scan: {len(jobs)} jobs")
 

@@ -339,6 +339,24 @@ _MAX_JITTER = 2.0  # additional random jitter (uniform)
 _SEARXNG_MIN_SPACING = 5.0  # seconds between consecutive SearXNG queries
 _last_searxng_call = 0.0    # monotonic timestamp of the previous SearXNG call
 
+# High-signal function/marker words for the German-vs-English language detector
+# (_infer_language_hint). Kept small and high-precision to avoid false hits.
+_DE_FUNCTION_WORDS = {
+    "und", "der", "die", "das", "für", "mit", "bei", "eine", "einen", "einer",
+    "wir", "sie", "ist", "sind", "im", "zur", "zum", "auf", "von", "des", "den",
+    "als", "aus", "sowie", "oder", "über", "unser", "unsere", "unternehmen",
+    "mitarbeiter", "aufgaben", "kenntnisse", "erfahrung", "bereich", "leitung",
+    "standort", "stelle", "stellenangebot", "gehalt", "personal", "bewerbung",
+    "arbeitszeit", "abteilung", "vollzeit", "teilzeit", "festanstellung",
+}
+_EN_FUNCTION_WORDS = {
+    "and", "the", "for", "with", "you", "your", "our", "are", "of", "to",
+    "in", "as", "we", "will", "have", "who", "this", "that", "role", "team",
+    "experience", "skills", "requirements", "responsibilities", "join", "about",
+    "work", "company", "position", "opportunity", "candidate", "leadership",
+}
+
+
 # =========================================================================
 # Token Bucket Rate Limiter (pre-emptive, prevents 429 entirely)
 # =========================================================================
@@ -662,7 +680,7 @@ def _parse_serp_provider_results(payload: dict, source_name: str) -> list[dict]:
             "application_url": link,
             "publish_date": "",
             "salary_text": "",
-            "language_hint": "en",
+            "language_hint": _infer_language_hint(f"{title} {company} {snippet}"),
         })
 
     # De-dup by destination URL
@@ -708,7 +726,7 @@ def _parse_searxng_results(payload: dict, source_name: str) -> list[dict]:
             "application_url": link,
             "publish_date": "",
             "salary_text": "",
-            "language_hint": "en",
+            "language_hint": _infer_language_hint(f"{title} {company} {snippet}"),
         })
 
     seen: set[str] = set()
@@ -753,7 +771,7 @@ def _parse_google_cse_results(payload: dict, source_name: str) -> list[dict]:
             "application_url": link,
             "publish_date": "",
             "salary_text": "",
-            "language_hint": "en",
+            "language_hint": _infer_language_hint(f"{title} {company} {snippet}"),
         })
 
     seen: set[str] = set()
@@ -952,8 +970,9 @@ def normalize_jsonld(job: dict, source_name: str) -> dict:
     org = job.get("hiringOrganization", {})
     company = org.get("name", "") if isinstance(org, dict) else str(org)
 
-    desc = (job.get("description") or "").lower()
-    lang_hint = "de" if re.search(r"\bdeutsch\b|\bdeutschkenntnisse\b", desc) else "en"
+    desc = (job.get("description") or "")
+    title = (job.get("title") or "").strip()
+    lang_hint = _infer_language_hint(f"{title} {desc}")
 
     return {
         "title": job.get("title", "").strip(),
@@ -1031,7 +1050,7 @@ def parse_rss(xml_text: str, source_name: str) -> list[dict]:
             "application_url": link,
             "publish_date": pub_date,
             "salary_text": "",
-            "language_hint": "en",
+            "language_hint": _infer_language_hint(f"{title} {desc}"),
         })
     return jobs
 
@@ -1093,7 +1112,7 @@ def parse_json_jobs(json_text: str, source_name: str) -> list[dict]:
             "application_url": link,
             "publish_date": publish_date,
             "salary_text": "",
-            "language_hint": "en",
+            "language_hint": _infer_language_hint(title),
         })
 
     return jobs
@@ -1322,7 +1341,7 @@ def parse_google_jobs(html: str, source_name: str) -> list[dict]:
             "application_url": url,
             "publish_date": "",
             "salary_text": "",
-            "language_hint": "en",
+            "language_hint": _infer_language_hint(f"{title} {company} {snippet}"),
         })
 
     # Google layout
@@ -1409,10 +1428,59 @@ def _clean_text(s: str) -> str:
 
 
 def _infer_language_hint(text: str) -> str:
-    t = text.lower()
-    if re.search(r"\bdeutsch\b|\bgerman\s+required\b|\bdeutschkenntnisse\b", t):
+    """
+    Heuristic German-vs-English detector (dependency-free).
+
+    The previous version only flagged "de" when the literal word "deutsch"
+    appeared, so the vast majority of German postings defaulted to "en".
+    This version scores German vs English function words plus German-only
+    characters (ä ö ü ß) and common German job-title/description markers,
+    which are strong, high-precision signals in DACH job text.
+    """
+    t = (text or "").lower()
+    if not t.strip():
+        return "en"
+
+    # Strong explicit signals win immediately.
+    if re.search(r"deutschkenntnisse|flie\wend\s+deutsch|deutsch\s+(?:erforderlich|zwingend)|german\s+required", t):
         return "de"
-    return "en"
+
+    tokens = re.findall(r"[a-zäöüß]+", t)
+    if not tokens:
+        return "en"
+    token_set = set(tokens)
+
+    umlaut_hits = len(re.findall(r"[äöüß]", t))
+
+    de_score = sum(1 for w in tokens if w in _DE_FUNCTION_WORDS)
+    en_score = sum(1 for w in tokens if w in _EN_FUNCTION_WORDS)
+
+    # German umlauts almost never appear in English job text — weight them.
+    de_score += 1.5 * umlaut_hits
+
+    # German/Austrian gender notation — e.g. (m/w/d), (w/m/x), (d/m/f), m,w,d,
+    # and the gender-neutral suffixes :in / *in — are high-precision markers
+    # that a posting is written for a German-language audience, even when the
+    # job TITLE itself is in English (very common for exec/tech roles).
+    if re.search(r"\(\s*[mwfdx](?:\s*[/,]\s*[mwfdx]){1,2}\s*\)", t) or re.search(r"[a-zäöü]+(?::innen|:in|\*in|\*innen)\b", t):
+        de_score += 2
+
+    # German job-title / description stems (leiter, geschäftsführer, entwicklung…).
+    if re.search(
+        r"\b(?:leiter|leiterin|leitung|gesch\wftsf\whr|standort|mitarbeiter|"
+        r"entwickl|vertrieb|einkauf|bereichsleit|abteilungsleit|"
+        r"aufgaben|kenntnisse|bewerb|verantwort)\w*",
+        t,
+    ):
+        de_score += 2
+
+    if de_score > en_score:
+        return "de"
+    if en_score > de_score:
+        return "en"
+    # Tie-break: any umlaut → German; otherwise English (pipeline default).
+    return "de" if umlaut_hits else "en"
+
 
 
 def _extract_salary(text: str) -> str:
@@ -1601,7 +1669,7 @@ def parse_jobs_ch(html: str, source_name: str) -> list[dict]:
             "application_url": href,
             "publish_date": "",
             "salary_text": "",
-            "language_hint": "en",
+            "language_hint": _infer_language_hint(_text(title_el)),
         })
     return jobs
 
@@ -1658,7 +1726,7 @@ def parse_linkedin_guest_api(html: str, source_name: str) -> list[dict]:
             "application_url": clean_url,
             "publish_date": "",
             "salary_text": "",
-            "language_hint": "en",
+            "language_hint": _infer_language_hint(title),
         })
 
     return jobs
