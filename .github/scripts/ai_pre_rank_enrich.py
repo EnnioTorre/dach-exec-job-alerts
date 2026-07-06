@@ -16,18 +16,21 @@ This step is best-effort and safe to skip.
 
 import json
 import os
+import re
 from datetime import date
 from pathlib import Path
 
 MODELS_BASE_URL = "https://models.inference.ai.azure.com"
 MODEL = "gpt-4o-mini"
-MAX_TOKENS = 1400
+# Response must hold one JSON object per input row. Keep this comfortably above
+# BATCH_SIZE * (~150 tokens/row) so the model never truncates mid-JSON.
+MAX_TOKENS = 4000
 
 RAW_IN = "/tmp/jobs/jobs_raw.json"
 RAW_AI_OUT = "/tmp/jobs/jobs_raw_ai.json"
 
 MAX_JOBS = 120
-BATCH_SIZE = 30
+BATCH_SIZE = 20
 
 
 def load_raw() -> dict:
@@ -83,6 +86,58 @@ Return JSON only:
 """
 
 
+def _extract_json_updates(content: str) -> list[dict]:
+    """
+    Parse the model response into a list of update dicts.
+
+    Tolerates truncated or fence-wrapped JSON: if the full document does not
+    parse (e.g. the response was cut off mid-string by the token limit), we
+    salvage every complete object from the "updates" array instead of
+    discarding the whole batch.
+    """
+    content = (content or "").strip()
+    if not content:
+        return []
+
+    # Strip a leading ```json / ``` code fence if the model added one.
+    if content.startswith("```"):
+        content = re.sub(r"^```[a-zA-Z]*\s*", "", content)
+        content = re.sub(r"\s*```$", "", content).strip()
+
+    # Fast path: well-formed JSON.
+    try:
+        data = json.loads(content)
+        if isinstance(data, dict) and isinstance(data.get("updates"), list):
+            return [u for u in data["updates"] if isinstance(u, dict)]
+        if isinstance(data, list):
+            return [u for u in data if isinstance(u, dict)]
+    except json.JSONDecodeError:
+        pass
+
+    # Salvage path: scan complete {...} objects inside the updates array.
+    m = re.search(r'"updates"\s*:\s*\[', content)
+    idx = m.end() if m else content.find("[") + 1
+    if idx <= 0:
+        return []
+
+    updates: list[dict] = []
+    decoder = json.JSONDecoder()
+    n = len(content)
+    while idx < n:
+        while idx < n and content[idx] in " \t\r\n,":
+            idx += 1
+        if idx >= n or content[idx] == "]":
+            break
+        try:
+            obj, end = decoder.raw_decode(content, idx)
+        except json.JSONDecodeError:
+            break  # reached the truncated / incomplete tail
+        if isinstance(obj, dict):
+            updates.append(obj)
+        idx = end
+    return updates
+
+
 def call_models(prompt: str) -> dict | None:
     token = os.getenv("GITHUB_TOKEN")
     if not token:
@@ -101,7 +156,11 @@ def call_models(prompt: str) -> dict | None:
             max_tokens=MAX_TOKENS,
         )
         content = resp.choices[0].message.content or ""
-        return json.loads(content)
+        updates = _extract_json_updates(content)
+        if not updates:
+            print("AI pre-rank enrichment: no parsable updates in response")
+            return None
+        return {"updates": updates}
     except Exception as exc:
         print(f"AI pre-rank enrichment failed: {exc}")
         return None
