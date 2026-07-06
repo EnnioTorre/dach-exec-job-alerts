@@ -966,7 +966,7 @@ def _fetch_google_proxy_via_provider(source_url: str, source_name: str) -> list[
             params = {
                 "q": query,
                 "format": "json",
-                "language": "de,en",
+                "language": "all",
                 "safesearch": "0",
                 "pageno": "1",
             }
