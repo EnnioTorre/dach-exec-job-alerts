@@ -64,13 +64,6 @@ SOURCES = [
     {"name": "karriere_at_cloud", "type": "html",
      "url": "https://www.karriere.at/jobs/cloud-engineering",    "region": "AT"},
 
-    # Indeed RSS returns 403 in CI; use proxy discovery instead.
-    {"name": "indeed_at_rss",     "type": "search_proxy",
-     "url": "https://www.bing.com/search?" + urlencode({
-         "q": 'site:indeed.com/viewjob "Engineering Manager" Austria OR site:indeed.de/viewjob "Engineering Manager" Austria',
-         "count": "20",
-     }), "region": "AT"},
-
     # jobs.ch direct HTML is usually better than SERP snippets when accessible.
     {"name": "jobs_ch",           "type": "html",
      "url": "https://www.jobs.ch/en/vacancies/?term=head+of+engineering", "region": "CH"},
@@ -178,315 +171,143 @@ SOURCES = [
          "location": "Berlin, Germany", "start": "0",
      }), "region": "DE"},
 
-    # LinkedIn is also reached via search-engine proxies as a fallback for when
-    # the guest API is unavailable or returns no results for a given region.
-    # Reached via search-engine proxies which return public snippets.
-    # Each source targets a distinct title × region pair to avoid redundancy.
+    # -------------------------------------------------------------------------
+    # LinkedIn guest API — expanded coverage (probe-validated 2026-07).
+    #   The endpoint returns a fixed 10 cards/request; deeper `start` offsets
+    #   keep yielding ~9 new unique jobs per page up to start>=90, and
+    #   city-level sweeps are highly additive to the country sweeps (LinkedIn
+    #   location matching is not hierarchical). So we deepen pagination and add
+    #   productive city sweeps rather than relying on capped SERP proxies.
+    # -------------------------------------------------------------------------
+    # Austria — deepen leadership pagination
+    {"name": "linkedin_at_leader_4", "type": "linkedin_api",
+     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
+         "keywords": "Engineering Manager OR CTO OR Head of Engineering OR VP Engineering OR Director of Engineering",
+         "location": "Austria", "start": "40",
+     }), "region": "AT"},
+    # Germany — deepen leadership pagination
+    {"name": "linkedin_de_leader_3", "type": "linkedin_api",
+     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
+         "keywords": "Engineering Manager OR CTO OR Head of Engineering OR VP Engineering OR Director of Engineering",
+         "location": "Germany", "start": "30",
+     }), "region": "DE"},
+    {"name": "linkedin_de_leader_4", "type": "linkedin_api",
+     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
+         "keywords": "Engineering Manager OR CTO OR Head of Engineering OR VP Engineering OR Director of Engineering",
+         "location": "Germany", "start": "40",
+     }), "region": "DE"},
+    # Switzerland — deepen leadership + add senior/principal group
+    {"name": "linkedin_ch_leader_2", "type": "linkedin_api",
+     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
+         "keywords": "Engineering Manager OR CTO OR Head of Engineering OR VP Engineering OR Director of Engineering",
+         "location": "Switzerland", "start": "20",
+     }), "region": "CH"},
+    {"name": "linkedin_ch_principal_0", "type": "linkedin_api",
+     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
+         "keywords": "Principal Engineer OR Staff Engineer OR Tech Lead OR Senior Software Engineer OR Platform Engineer",
+         "location": "Switzerland", "start": "0",
+     }), "region": "CH"},
+    # Cities — highly additive to country sweeps (probe: Munich +39, Berlin +33, Vienna +28)
+    {"name": "linkedin_vienna_1", "type": "linkedin_api",
+     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
+         "keywords": "Engineering Manager OR Head of Engineering OR CTO OR VP Engineering OR Tech Lead",
+         "location": "Vienna, Austria", "start": "10",
+     }), "region": "AT"},
+    {"name": "linkedin_graz_0", "type": "linkedin_api",
+     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
+         "keywords": "Engineering Manager OR Head of Engineering OR CTO OR Tech Lead OR Software Engineer",
+         "location": "Graz, Austria", "start": "0",
+     }), "region": "AT"},
+    {"name": "linkedin_berlin_1", "type": "linkedin_api",
+     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
+         "keywords": "Engineering Manager OR Head of Engineering OR CTO OR VP Engineering OR Tech Lead",
+         "location": "Berlin, Germany", "start": "10",
+     }), "region": "DE"},
+    {"name": "linkedin_munich_0", "type": "linkedin_api",
+     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
+         "keywords": "Engineering Manager OR Head of Engineering OR CTO OR VP Engineering OR Tech Lead",
+         "location": "Munich, Germany", "start": "0",
+     }), "region": "DE"},
+    {"name": "linkedin_munich_1", "type": "linkedin_api",
+     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
+         "keywords": "Engineering Manager OR Head of Engineering OR CTO OR VP Engineering OR Tech Lead",
+         "location": "Munich, Germany", "start": "10",
+     }), "region": "DE"},
+    {"name": "linkedin_hamburg_0", "type": "linkedin_api",
+     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
+         "keywords": "Engineering Manager OR Head of Engineering OR CTO OR VP Engineering OR Tech Lead",
+         "location": "Hamburg, Germany", "start": "0",
+     }), "region": "DE"},
+    {"name": "linkedin_frankfurt_0", "type": "linkedin_api",
+     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
+         "keywords": "Engineering Manager OR Head of Engineering OR CTO OR VP Engineering OR Tech Lead",
+         "location": "Frankfurt, Germany", "start": "0",
+     }), "region": "DE"},
+    {"name": "linkedin_zurich_0", "type": "linkedin_api",
+     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
+         "keywords": "Engineering Manager OR Head of Engineering OR CTO OR VP Engineering OR Tech Lead",
+         "location": "Zurich, Switzerland", "start": "0",
+     }), "region": "CH"},
+
+    # =========================================================================
+    # SERP proxies via SearXNG provider (google_proxy type only).
+    #   Probe-validated 2026-07: single-site queries reliably yield ~20 job
+    #   URLs each. SearXNG/Google throttles after ~8-9 rapid queries per run,
+    #   so this set is intentionally lean (8) and the provider spaces calls.
+    #   Multi-site "OR site:" queries and Xing yielded poorly and were dropped.
+    #   All Bing/DDG/Ecosia (search_proxy) sources were removed — they returned
+    #   zero on the runner and are skipped by SCRAPER_SKIP_SEARCH_PROXIES.
+    # =========================================================================
     {"name": "google_linkedin_at", "type": "google_proxy",
      "url": "https://www.google.com/search?" + urlencode({
-         "q": 'site:linkedin.com/jobs/view "Head of Engineering" OR "VP Engineering" Austria -head.com -wikipedia',
+         "q": 'site:linkedin.com/jobs/view ("Head of Engineering" OR "VP Engineering" OR CTO) Austria',
          "num": "20",
      }), "region": "AT"},
     {"name": "google_linkedin_de", "type": "google_proxy",
      "url": "https://www.google.com/search?" + urlencode({
-         "q": 'site:linkedin.com/jobs/view "CTO" OR "Chief Technology Officer" Germany -wikipedia -support.google.com',
+         "q": 'site:linkedin.com/jobs/view ("CTO" OR "VP Engineering" OR "Director of Engineering") Germany',
          "num": "20",
      }), "region": "DE"},
-
-    # Bing/DuckDuckGo proxies improve resilience when Google yields no extractable cards.
-    # Bing/DDG: each covers a different title × region combo from the Google sources above.
-    {"name": "bing_linkedin_at", "type": "search_proxy",
-     "url": "https://www.bing.com/search?" + urlencode({
-         "q": 'site:linkedin.com/jobs/view "Director of Engineering" OR "Engineering Manager" Austria',
-         "count": "20",
-     }), "region": "AT"},
-    {"name": "bing_linkedin_de", "type": "search_proxy",
-     "url": "https://www.bing.com/search?" + urlencode({
-         "q": 'site:linkedin.com/jobs/view "Head of Engineering" OR "VP Engineering" Germany',
-         "count": "20",
-     }), "region": "DE"},
-    {"name": "ddg_linkedin_dach", "type": "search_proxy",
-     "url": "https://duckduckgo.com/html/?" + urlencode({
-         "q": 'site:linkedin.com/jobs/view "Engineering Manager" OR "Director of Engineering" Switzerland -wikipedia',
-     }), "region": "CH"},
-
-    # Proxies for sources that fail direct fetch in CI.
-    {"name": "bing_stepstone_dach", "type": "search_proxy",
-     "url": "https://www.bing.com/search?" + urlencode({
-         "q": 'site:stepstone.at/jobs/ OR site:stepstone.de/jobs/ "CTO" OR "VP Engineering" DACH',
-         "count": "20",
-     }), "region": "DACH"},
-    {"name": "bing_indeed_dach", "type": "search_proxy",
-     "url": "https://www.bing.com/search?" + urlencode({
-         "q": 'site:indeed.com/viewjob OR site:indeed.de/viewjob "Director of Engineering" DACH',
-         "count": "20",
-     }), "region": "DACH"},
-
-    # Google Jobs structured results — broad DACH sweep
-    # Google Jobs structured results — distinct title from google_linkedin_at
-    {"name": "google_jobs_at",    "type": "google_proxy",
+    {"name": "google_linkedin_ch", "type": "google_proxy",
      "url": "https://www.google.com/search?" + urlencode({
-         "q": 'site:linkedin.com/jobs/view OR site:stepstone.at/jobs/ OR site:jobs.ch/en/vacancies/detail/ "Director of Engineering" OR "Engineering Manager" Austria -head.com -wikipedia',
-         "num": "20",
-     }), "region": "AT"},
-
-    # Switzerland + South Tyrol sweep — fills CH gap not covered by other sources
-    {"name": "google_jobs_bolzano", "type": "google_proxy",
-     "url": "https://www.google.com/search?" + urlencode({
-         "q": 'site:linkedin.com/jobs/view OR site:jobs.ch/en/vacancies/detail/ "VP Engineering" OR "Head of Engineering" Switzerland OR Bolzano OR Bozen -wikipedia',
+         "q": 'site:linkedin.com/jobs/view ("Engineering Manager" OR "Head of Engineering" OR CTO) Switzerland',
          "num": "20",
      }), "region": "CH"},
-
-    # =========================================================================
-    # Tier 2: Additional proxy sources for improved coverage
-    # =========================================================================
-    
-    # Bing variants with additional title keywords (Principal, Tech Lead, Staff)
-    {"name": "bing_linkedin_principal", "type": "search_proxy",
-     "url": "https://www.bing.com/search?" + urlencode({
-         "q": 'site:linkedin.com/jobs/view "Principal Engineer" OR "Staff Engineer" OR "Tech Lead" DACH',
-         "count": "20",
-     }), "region": "DACH"},
-    
-    {"name": "bing_linkedin_de_mgr", "type": "search_proxy",
-     "url": "https://www.bing.com/search?" + urlencode({
-         "q": 'site:linkedin.com/jobs/view "Engineering Manager" OR "Senior Engineer Manager" Germany',
-         "count": "20",
-     }), "region": "DE"},
-    
-    {"name": "bing_linkedin_ch_tech", "type": "search_proxy",
-     "url": "https://www.bing.com/search?" + urlencode({
-         "q": 'site:linkedin.com/jobs/view "Chief Technology" OR "CTO" OR "Tech Director" Switzerland',
-         "count": "20",
-     }), "region": "CH"},
-
-    # DuckDuckGo variants with different search patterns
-    {"name": "ddg_linkedin_at", "type": "search_proxy",
-     "url": "https://duckduckgo.com/html/?" + urlencode({
-         "q": 'site:linkedin.com/jobs/view "CTO" OR "VP Engineering" Austria',
-     }), "region": "AT"},
-    
-    {"name": "ddg_linkedin_de", "type": "search_proxy",
-     "url": "https://duckduckgo.com/html/?" + urlencode({
-         "q": 'site:linkedin.com/jobs/view "Head of Engineering" OR "Director of Engineering" Germany',
-     }), "region": "DE"},
-
-    # Ecosia as alternative proxy (bot-friendly, privacy-focused)
-    {"name": "ecosia_linkedin_de", "type": "search_proxy",
-     "url": "https://www.ecosia.org/search?" + urlencode({
-         "q": 'site:linkedin.com/jobs/view engineering manager Germany',
-     }), "region": "DE"},
-    
-    {"name": "ecosia_jobs_at", "type": "search_proxy",
-     "url": "https://www.ecosia.org/search?" + urlencode({
-         "q": 'site:jobs.ch OR site:stepstone.at CTO "Austria"',
-     }), "region": "AT"},
-
-    # DuckDuckGo for Stepstone/Indeed (alternative to Bing)
-    {"name": "ddg_stepstone_de", "type": "search_proxy",
-     "url": "https://duckduckgo.com/html/?" + urlencode({
-         "q": 'site:stepstone.de/jobs "Head of Engineering" OR "CTO" Germany',
-     }), "region": "DE"},
-
-    # YouTube/Reddit job postings (some companies post directly)
-    {"name": "bing_engineering_at", "type": "search_proxy",
-     "url": "https://www.bing.com/search?" + urlencode({
-         "q": 'engineering jobs Austria "Vienna" OR "Graz" OR "Linz" -wordpress',
-         "count": "20",
-     }), "region": "AT"},
-
-    # Company career pages via search proxies (safer than detection-prone direct access)
-    {"name": "bing_career_pages_de", "type": "search_proxy",
-     "url": "https://www.bing.com/search?" + urlencode({
-         "q": 'site:careers.siemens.com OR site:careers.boehringer OR site:careers.sap.com "engineering" Germany',
-         "count": "20",
-     }), "region": "DE"},
-
-    {"name": "bing_tech_company_at", "type": "search_proxy",
-     "url": "https://www.bing.com/search?" + urlencode({
-         "q": '"engineering opportunities" OR "join our team" Vienna Austria site:.at/careers OR site:.at/jobs',
-         "count": "20",
-     }), "region": "AT"},
-
-    # Additional Xing searches (German-speaking market) — note: Xing may require JS rendering
-    # but search result pages are often scrapeable
-    {"name": "google_xing_de", "type": "google_proxy",
+    {"name": "google_linkedin_principal", "type": "google_proxy",
      "url": "https://www.google.com/search?" + urlencode({
-         "q": 'site:xing.com/jobs "CTO" OR "VP Engineering" OR "Head of Engineering" Germany Munich',
+         "q": 'site:linkedin.com/jobs/view ("Principal Engineer" OR "Staff Engineer" OR "Tech Lead") Germany OR Austria',
          "num": "20",
-     }), "region": "DE"},
-
-    {"name": "bing_xing_de", "type": "search_proxy",
-     "url": "https://www.bing.com/search?" + urlencode({
-         "q": 'site:xing.com engineering manager germany berlin -job.de',
-         "count": "20",
-     }), "region": "DE"},
-
-    # Direct job aggregator sources (more reliable than company pages)
-    {"name": "bing_indeed_de", "type": "search_proxy",
-     "url": "https://www.bing.com/search?" + urlencode({
-         "q": 'site:indeed.de "Head of Engineering" OR "VP Engineering" engineering jobs',
-         "count": "20",
-     }), "region": "DE"},
-
-    # Regional expansions (Vienna, Munich, Zurich, Berlin subsearch)
-    {"name": "google_vienna_jobs", "type": "google_proxy",
+     }), "region": "DACH"},
+    {"name": "google_stepstone_at", "type": "google_proxy",
      "url": "https://www.google.com/search?" + urlencode({
-         "q": 'Vienna Austria engineering manager OR "head of" OR CTO site:linkedin.com -job.com',
+         "q": 'site:stepstone.at/jobs ("CTO" OR "Head of Engineering" OR "VP Engineering")',
          "num": "20",
      }), "region": "AT"},
-
-    {"name": "bing_berlin_tech", "type": "search_proxy",
-     "url": "https://www.bing.com/search?" + urlencode({
-         "q": 'Berlin Germany engineering leadership "engineering manager" OR "tech lead" OR CTO',
-         "count": "20",
+    {"name": "google_stepstone_de", "type": "google_proxy",
+     "url": "https://www.google.com/search?" + urlencode({
+         "q": 'site:stepstone.de/jobs ("CTO" OR "Head of Engineering" OR "Engineering Manager")',
+         "num": "20",
      }), "region": "DE"},
-
-    {"name": "bing_zurich_jobs", "type": "search_proxy",
-     "url": "https://www.bing.com/search?" + urlencode({
-         "q": 'Zurich Switzerland engineering jobs leadership site:linkedin.com',
-         "count": "20",
+    {"name": "google_jobs_ch", "type": "google_proxy",
+     "url": "https://www.google.com/search?" + urlencode({
+         "q": 'site:jobs.ch ("Head of Engineering" OR "Engineering Manager" OR CTO)',
+         "num": "20",
      }), "region": "CH"},
-
-    # Higher page result numbers for better coverage
-    {"name": "bing_linkedin_diverse_at", "type": "search_proxy",
-     "url": "https://www.bing.com/search?" + urlencode({
-         "q": 'site:linkedin.com/jobs/view Austria technology engineering leadership',
-         "count": "30",
+    {"name": "google_indeed_at", "type": "google_proxy",
+     "url": "https://www.google.com/search?" + urlencode({
+         "q": 'site:indeed.com/viewjob OR site:indeed.de/viewjob "Engineering Manager" Austria',
+         "num": "20",
      }), "region": "AT"},
-
-    {"name": "ddg_tech_dach", "type": "search_proxy",
-     "url": "https://duckduckgo.com/html/?" + urlencode({
-         "q": 'engineering director OR "VP of engineering" DACH 2025 2026',
-     }), "region": "DACH"},
 ]
 
 # Alternate URLs used when a source fetch fails or repeatedly returns no content.
 SOURCE_URL_FALLBACKS: dict[str, list[str]] = {
-    "stepstone_at_cto": [
-        "https://www.stepstone.at/jobs/cto",
-        "https://duckduckgo.com/html/?" + urlencode({"q": 'site:stepstone.at/jobs "CTO" Austria'}),
-    ],
-    "stepstone_at_hoe": [
-        "https://www.stepstone.at/jobs/head-of-engineering",
-        "https://duckduckgo.com/html/?" + urlencode({"q": 'site:stepstone.at/jobs "Head of Engineering" Austria'}),
-    ],
-    "stepstone_de_hoe": [
-        "https://www.stepstone.de/jobs/head-of-engineering",
-        "https://duckduckgo.com/html/?" + urlencode({"q": 'site:stepstone.de/jobs "Head of Engineering" Germany'}),
-    ],
-    "indeed_at_rss": [
-        "https://www.bing.com/search?" + urlencode({"q": 'site:indeed.com/jobs "Engineering Manager" Austria', "count": "20"}),
-        "https://duckduckgo.com/html/?" + urlencode({"q": 'site:indeed.com/jobs "Engineering Manager" Austria'}),
-    ],
+    # HTML source alternates only. SERP sources go through the SearXNG provider
+    # and need no direct-fetch fallbacks in provider_only mode. All Bing/DDG/
+    # Ecosia proxy fallbacks were removed with their (zero-yield) sources.
     "jobs_ch": [
         "https://www.jobs.ch/en/vacancies/?term=head+of+engineering",
-        "https://www.bing.com/search?" + urlencode({"q": 'site:jobs.ch "Head of Engineering"', "count": "20"}),
-    ],
-    "google_linkedin_at": [
-        "https://www.google.at/search?" + urlencode({"q": 'site:linkedin.com/jobs/view "Head of Engineering" Austria OR "VP Engineering" Austria', "num": "20"}),
-        "https://www.google.de/search?" + urlencode({"q": 'site:linkedin.com/jobs/view "Head of Engineering" Austria OR "VP Engineering" Austria', "num": "20"}),
-        "https://www.bing.com/search?" + urlencode({"q": 'site:linkedin.com/jobs/view "Head of Engineering" Austria', "count": "20"}),
-        "https://www.bing.com/search?" + urlencode({"q": 'site:linkedin.com/jobs/view "VP Engineering" Austria', "count": "20"}),
-    ],
-    "google_linkedin_de": [
-        "https://www.google.de/search?" + urlencode({"q": 'site:linkedin.com/jobs/view "CTO" Germany OR "Chief Technology Officer" Germany', "num": "20"}),
-        "https://www.google.at/search?" + urlencode({"q": 'site:linkedin.com/jobs/view "CTO" Germany OR "Chief Technology Officer" Germany', "num": "20"}),
-        "https://www.bing.com/search?" + urlencode({"q": 'site:linkedin.com/jobs/view "CTO" Germany', "count": "20"}),
-        "https://www.bing.com/search?" + urlencode({"q": 'site:linkedin.com/jobs/view "Chief Technology Officer" Germany', "count": "20"}),
-        "https://www.bing.com/search?" + urlencode({"q": 'site:linkedin.com/jobs/view "VP Engineering" Germany', "count": "20"}),
-    ],
-    "ddg_linkedin_dach": [
-        "https://www.bing.com/search?" + urlencode({"q": 'site:linkedin.com/jobs/view "Engineering Manager" Switzerland', "count": "20"}),
-        "https://www.bing.com/search?" + urlencode({"q": 'site:linkedin.com/jobs/view "Director of Engineering" Switzerland', "count": "20"}),
-    ],
-    "google_jobs_at": [
-        "https://www.google.at/search?" + urlencode({"q": 'site:linkedin.com/jobs/view OR site:stepstone.at/jobs/ OR site:jobs.ch/en/vacancies/detail/ "Director of Engineering" OR "Engineering Manager" Austria', "num": "20"}),
-        "https://www.google.de/search?" + urlencode({"q": 'site:linkedin.com/jobs/view OR site:stepstone.at/jobs/ OR site:jobs.ch/en/vacancies/detail/ "Director of Engineering" OR "Engineering Manager" Austria', "num": "20"}),
-        "https://www.bing.com/search?" + urlencode({"q": '"Director of Engineering" OR "Engineering Manager" jobs Austria', "count": "20"}),
-    ],
-    "google_jobs_bolzano": [
-        "https://www.google.de/search?" + urlencode({"q": 'site:linkedin.com/jobs/view OR site:jobs.ch/en/vacancies/detail/ "VP Engineering" OR "Head of Engineering" Switzerland OR Bolzano OR Bozen', "num": "20"}),
-        "https://www.google.at/search?" + urlencode({"q": 'site:linkedin.com/jobs/view OR site:jobs.ch/en/vacancies/detail/ "VP Engineering" OR "Head of Engineering" Switzerland OR Bolzano OR Bozen', "num": "20"}),
-        "https://www.bing.com/search?" + urlencode({"q": '"VP Engineering" OR "Head of Engineering" jobs Switzerland', "count": "20"}),
-        "https://www.bing.com/search?" + urlencode({"q": '"Head of Engineering" jobs Bolzano', "count": "20"}),
-    ],
-    # Tier 2 fallbacks
-    "bing_linkedin_principal": [
-        "https://duckduckgo.com/html/?" + urlencode({"q": 'site:linkedin.com/jobs/view "Principal Engineer" DACH'}),
-        "https://www.google.com/search?" + urlencode({"q": 'site:linkedin.com/jobs/view "Staff Engineer" engineering', "num": "20"}),
-    ],
-    "bing_linkedin_de_mgr": [
-        "https://duckduckgo.com/html/?" + urlencode({"q": 'site:linkedin.com/jobs/view "Engineering Manager" Germany'}),
-        "https://www.ecosia.org/search?" + urlencode({"q": 'engineering manager jobs germany'}),
-    ],
-    "bing_linkedin_ch_tech": [
-        "https://duckduckgo.com/html/?" + urlencode({"q": 'site:linkedin.com/jobs/view CTO Switzerland'}),
-        "https://www.google.com/search?" + urlencode({"q": '"Chief Technology Officer" OR "Tech Director" Switzerland jobs', "num": "20"}),
-    ],
-    "ddg_linkedin_at": [
-        "https://www.bing.com/search?" + urlencode({"q": 'site:linkedin.com/jobs/view CTO Austria', "count": "20"}),
-        "https://www.google.com/search?" + urlencode({"q": 'site:linkedin.com/jobs/view "VP Engineering" Austria', "num": "20"}),
-    ],
-    "ddg_linkedin_de": [
-        "https://www.bing.com/search?" + urlencode({"q": 'site:linkedin.com/jobs/view "Head of Engineering" Germany', "count": "20"}),
-        "https://www.google.de/search?" + urlencode({"q": 'site:linkedin.com/jobs/view "Director of Engineering" Germany', "num": "20"}),
-    ],
-    "ecosia_linkedin_de": [
-        "https://www.bing.com/search?" + urlencode({"q": 'site:linkedin.com/jobs/view engineering germany', "count": "20"}),
-        "https://duckduckgo.com/html/?" + urlencode({"q": 'germany jobs engineering linkedin'}),
-    ],
-    "ecosia_jobs_at": [
-        "https://duckduckgo.com/html/?" + urlencode({"q": 'site:stepstone.at jobs "Austria"'}),
-        "https://www.bing.com/search?" + urlencode({"q": 'site:jobs.ch engineering Austria', "count": "20"}),
-    ],
-    "ddg_stepstone_de": [
-        "https://www.bing.com/search?" + urlencode({"q": 'site:stepstone.de "Head of Engineering" Germany', "count": "20"}),
-        "https://www.google.de/search?" + urlencode({"q": 'site:stepstone.de CTO OR "VP Engineering"', "num": "20"}),
-    ],
-    "bing_engineering_at": [
-        "https://www.google.com/search?" + urlencode({"q": 'engineering jobs Vienna Austria', "num": "20"}),
-        "https://duckduckgo.com/html/?" + urlencode({"q": 'jobs Austria engineering Graz Linz'}),
-    ],
-    "bing_career_pages_de": [
-        "https://www.google.de/search?" + urlencode({"q": 'careers siemens OR sap OR boehringer germany engineering', "num": "20"}),
-        "https://duckduckgo.com/html/?" + urlencode({"q": 'tech company careers germany engineering'}),
-    ],
-    "bing_tech_company_at": [
-        "https://www.google.at/search?" + urlencode({"q": 'engineering opportunities Vienna Austria careers', "num": "20"}),
-        "https://duckduckgo.com/html/?" + urlencode({"q": 'join engineering team austria vienna'}),
-    ],
-    "google_xing_de": [
-        "https://www.bing.com/search?" + urlencode({"q": 'site:xing.com "VP Engineering" Germany', "count": "20"}),
-        "https://duckduckgo.com/html/?" + urlencode({"q": 'site:xing.com jobs CTO germany'}),
-    ],
-    "bing_xing_de": [
-        "https://www.google.de/search?" + urlencode({"q": 'site:xing.com engineering leader germany berlin', "num": "20"}),
-        "https://duckduckgo.com/html/?" + urlencode({"q": 'xing jobs germany engineering manager'}),
-    ],
-    "bing_indeed_de": [
-        "https://www.google.de/search?" + urlencode({"q": 'site:indeed.de engineering jobs germany', "num": "20"}),
-        "https://duckduckgo.com/html/?" + urlencode({"q": 'site:indeed.de Head of Engineering'}),
-    ],
-    "google_vienna_jobs": [
-        "https://www.bing.com/search?" + urlencode({"q": '"Vienna" "engineering" jobs Austria', "count": "20"}),
-        "https://duckduckgo.com/html/?" + urlencode({"q": 'vienna austria engineering leadership'}),
-    ],
-    "bing_berlin_tech": [
-        "https://www.google.de/search?" + urlencode({"q": 'Berlin engineering manager OR tech lead jobs', "num": "20"}),
-        "https://duckduckgo.com/html/?" + urlencode({"q": 'berlin germany CTO OR "VP Engineering"'}),
-    ],
-    "bing_zurich_jobs": [
-        "https://www.google.ch/search?" + urlencode({"q": 'Zurich Switzerland engineering leadership jobs', "num": "20"}),
-        "https://duckduckgo.com/html/?" + urlencode({"q": 'zurich switzerland engineering jobs'}),
-    ],
-    "bing_linkedin_diverse_at": [
-        "https://duckduckgo.com/html/?" + urlencode({"q": 'site:linkedin.com Austria engineering leadership'}),
-        "https://www.google.at/search?" + urlencode({"q": 'site:linkedin.com/jobs/view Austria technology', "num": "20"}),
-    ],
-    "ddg_tech_dach": [
-        "https://www.bing.com/search?" + urlencode({"q": '"engineering director" OR "VP of engineering" DACH', "count": "20"}),
-        "https://www.google.com/search?" + urlencode({"q": 'engineering director DACH 2025', "num": "20"}),
+        "https://www.jobs.ch/en/vacancies/?term=engineering+manager",
     ],
 }
 
@@ -511,6 +332,12 @@ _BASE_HEADERS = {
 _last_fetch: dict[str, float] = {}
 _MIN_DELAY = 2.0   # seconds between requests to the same host
 _MAX_JITTER = 2.0  # additional random jitter (uniform)
+
+# SearXNG anti-throttle spacing: Google throttles a SearXNG instance after
+# ~8-9 rapid queries. Space consecutive SearXNG calls apart so all
+# google_proxy sources reliably yield results within one run.
+_SEARXNG_MIN_SPACING = 5.0  # seconds between consecutive SearXNG queries
+_last_searxng_call = 0.0    # monotonic timestamp of the previous SearXNG call
 
 # =========================================================================
 # Token Bucket Rate Limiter (pre-emptive, prevents 429 entirely)
@@ -960,6 +787,13 @@ def _fetch_google_proxy_via_provider(source_url: str, source_name: str) -> list[
     searxng_key = (os.getenv("SCRAPER_SEARXNG_KEY") or "").strip()
     if searxng_url:
         try:
+            global _last_searxng_call
+            # Space consecutive SearXNG queries to stay under Google's throttle
+            # ceiling (~8-9 rapid queries per run otherwise returns 0 results).
+            elapsed = time.monotonic() - _last_searxng_call
+            if elapsed < _SEARXNG_MIN_SPACING:
+                time.sleep(_SEARXNG_MIN_SPACING - elapsed)
+            _last_searxng_call = time.monotonic()
             headers: dict[str, str] = {"Accept": "application/json"}
             if searxng_key:
                 headers["Authorization"] = f"Bearer {searxng_key}"
@@ -1841,8 +1675,6 @@ PARSER_MAP = {
     "karriere_at_platform": parse_karriere_at,
     "karriere_at_cloud":    parse_karriere_at,
     "jobs_ch":             parse_jobs_ch,
-    # rss sources (also used by scrape_extra.py for any indeed-like suggestion)
-    "indeed_at_rss":       parse_rss,
     # google proxy sources
     "google_linkedin_at":  parse_google_jobs,
     "google_linkedin_de":  parse_google_jobs,
