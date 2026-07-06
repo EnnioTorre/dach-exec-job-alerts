@@ -339,6 +339,14 @@ _MAX_JITTER = 2.0  # additional random jitter (uniform)
 _SEARXNG_MIN_SPACING = 5.0  # seconds between consecutive SearXNG queries
 _last_searxng_call = 0.0    # monotonic timestamp of the previous SearXNG call
 
+# LinkedIn language enrichment: guest job cards expose only the (often English)
+# title, but the posting body may be German. The public guest endpoint
+# /jobs-guest/jobs/api/jobPosting/<id> returns the description without auth, so
+# we fetch it to detect the true language for cards whose title looks English.
+# Bounded per run (cost / 429 protection) and cached per job id.
+_LINKEDIN_LANG_CACHE: dict[str, str] = {}
+_linkedin_lang_enrich_used = 0
+
 # High-signal function/marker words for the German-vs-English language detector
 # (_infer_language_hint). Kept small and high-precision to avoid false hits.
 _DE_FUNCTION_WORDS = {
@@ -1674,6 +1682,53 @@ def parse_jobs_ch(html: str, source_name: str) -> list[dict]:
     return jobs
 
 
+def _fetch_linkedin_job_language(job_id: str) -> str | None:
+    """
+    Fetch the public LinkedIn guest job-posting description and detect its
+    language. Returns 'de'/'en', or None if unavailable.
+
+    The guest endpoint /jobs-guest/jobs/api/jobPosting/<id> serves the full
+    description HTML without authentication. Results are cached per job id and
+    the number of network fetches is capped per run (env
+    SCRAPER_LINKEDIN_LANG_ENRICH_MAX, default 60) to bound runtime and 429 risk.
+    """
+    if not job_id:
+        return None
+    if job_id in _LINKEDIN_LANG_CACHE:
+        return _LINKEDIN_LANG_CACHE[job_id] or None
+
+    global _linkedin_lang_enrich_used
+    cap = int(os.getenv("SCRAPER_LINKEDIN_LANG_ENRICH_MAX", "60"))
+    if _linkedin_lang_enrich_used >= cap:
+        return None
+    _linkedin_lang_enrich_used += 1
+
+    url = f"https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{job_id}"
+    html = fetch(url, retries=1)
+    if not html:
+        _LINKEDIN_LANG_CACHE[job_id] = ""  # remember the failed attempt
+        return None
+
+    soup = BeautifulSoup(html, "html.parser")
+    desc_el = soup.find(
+        class_=lambda c: c and ("show-more-less-html__markup" in c or "description__text" in c)
+    )
+    text = desc_el.get_text(" ", strip=True) if desc_el else ""
+    if not text:
+        # Fall back to any JSON-LD JobPosting description embedded on the page.
+        for j in extract_jsonld_jobs(html):
+            if isinstance(j, dict) and j.get("description"):
+                text = str(j["description"])
+                break
+    if not text:
+        _LINKEDIN_LANG_CACHE[job_id] = ""
+        return None
+
+    lang = _infer_language_hint(text[:2500])
+    _LINKEDIN_LANG_CACHE[job_id] = lang
+    return lang
+
+
 def parse_linkedin_guest_api(html: str, source_name: str) -> list[dict]:
     """
     Parse LinkedIn's public guest API HTML fragment response into job dicts.
@@ -1717,6 +1772,17 @@ def parse_linkedin_guest_api(html: str, source_name: str) -> list[dict]:
         loc_el = li.find(class_=lambda c: c and "job-search-card__location" in c)
         location = loc_el.get_text(strip=True) if loc_el else ""
 
+        # Language: start from the title, then, for English-looking titles
+        # (the ambiguous case — German-titled cards are already correct),
+        # confirm against the actual posting description when enrichment is on.
+        lang_hint = _infer_language_hint(title)
+        if lang_hint == "en" and os.getenv(
+            "SCRAPER_LINKEDIN_LANG_ENRICH", "true"
+        ).lower() in {"1", "true", "yes"}:
+            enriched = _fetch_linkedin_job_language(job_id)
+            if enriched:
+                lang_hint = enriched
+
         jobs.append({
             "title": title,
             "company": company,
@@ -1726,7 +1792,7 @@ def parse_linkedin_guest_api(html: str, source_name: str) -> list[dict]:
             "application_url": clean_url,
             "publish_date": "",
             "salary_text": "",
-            "language_hint": _infer_language_hint(title),
+            "language_hint": lang_hint,
         })
 
     return jobs
