@@ -1,0 +1,48 @@
+name: searxng-query-probe
+
+# Manual-only diagnostic workflow to measure per-query SearXNG job-URL yield.
+# Does NOT create issues or run the full pipeline.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install --quiet requests
+
+      - name: Start SearXNG
+        run: |
+          docker run -d --name searxng \
+            -p 8080:8080 \
+            -v "${{ github.workspace }}/.github/searxng/settings.yml:/etc/searxng/settings.yml:ro" \
+            -e "SEARXNG_SECRET=$(head -c 32 /dev/urandom | base64)" \
+            searxng/searxng:latest
+          echo "Waiting for SearXNG JSON endpoint..."
+          for i in $(seq 1 45); do
+            if curl -sf "http://localhost:8080/search?q=test&format=json" >/dev/null 2>&1; then
+              echo "ready after $i tries"; break
+            fi
+            sleep 2
+          done
+
+      - name: Run query probe
+        run: python .github/scripts/probe_searxng_queries.py
+        env:
+          SCRAPER_SEARXNG_URL: "http://localhost:8080"
+
+      - name: Stop SearXNG
+        if: always()
+        run: docker rm -f searxng 2>/dev/null || true
