@@ -1,0 +1,17 @@
+# SearXNG configuration for CI (GitHub Actions) use.
+# Minimal settings to allow programmatic JSON search from the scraper.
+use_default_settings: true
+
+server:
+  # Overridden at runtime via SEARXNG_SECRET env; placeholder here.
+  secret_key: "ci-searxng-secret-override-me"
+  # Disable the bot limiter so the scraper can call /search?format=json.
+  limiter: false
+  image_proxy: false
+
+search:
+  safe_search: 0
+  # JSON format is REQUIRED by the scraper's SearXNG provider.
+  formats:
+    - html
+    - json

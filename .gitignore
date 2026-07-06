@@ -1,0 +1,10 @@
+# Local environment files with real secrets (never commit)
+.env
+.env.*
+# Keep example templates tracked
+!.env.*.example
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/

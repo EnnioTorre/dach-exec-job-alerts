@@ -53,19 +53,47 @@ jobs:
           fi
 
       # ------------------------------------------------------------------
+      # Stage 0: start a local SearXNG instance as the primary search
+      #   provider. GitHub runners have no corporate proxy, so SearXNG can
+      #   query upstream engines directly. The scraper tries SearXNG before
+      #   Google CSE, so this avoids CSE quota/billing when it returns hits.
+      # ------------------------------------------------------------------
+      - name: Start SearXNG (local search provider)
+        run: |
+          docker run -d --name searxng \
+            -p 8080:8080 \
+            -v "${{ github.workspace }}/.github/searxng/settings.yml:/etc/searxng/settings.yml:ro" \
+            -e "SEARXNG_SECRET=$(head -c 32 /dev/urandom | base64)" \
+            searxng/searxng:latest
+
+          echo "Waiting for SearXNG to accept JSON search..."
+          ready=""
+          for i in $(seq 1 45); do
+            if curl -sf "http://localhost:8080/search?q=test&format=json" >/dev/null 2>&1; then
+              ready="yes"; echo "SearXNG ready after ${i} tries"; break
+            fi
+            sleep 2
+          done
+          if [ -z "$ready" ]; then
+            echo "SearXNG did not become ready; dumping container logs:"
+            docker logs searxng 2>&1 | tail -50 || true
+            echo "Continuing anyway — scraper will fall back to Google CSE."
+          fi
+
+      # ------------------------------------------------------------------
       # Stage 1: deterministic scrape (pure Python + HTTP, no AI)
       # ------------------------------------------------------------------
       - name: Scrape jobs
         run: python .github/scripts/scrape_jobs.py
         env:
           SCRAPER_FAIL_ON_FETCH_ERROR: "false"
-          # Optional self-hosted search provider (SearXNG)
-          SCRAPER_SEARXNG_URL: ${{ secrets.SCRAPER_SEARXNG_URL }}
-          SCRAPER_SEARXNG_KEY: ${{ secrets.SCRAPER_SEARXNG_KEY }}
+          # Local SearXNG started above (primary provider).
+          SCRAPER_SEARXNG_URL: "http://localhost:8080"
+          SCRAPER_SEARXNG_KEY: ""
           # Optional managed providers
           SCRAPER_SERPAPI_KEY: ${{ secrets.SCRAPER_SERPAPI_KEY }}
           SCRAPER_ZENSERP_KEY: ${{ secrets.SCRAPER_ZENSERP_KEY }}
-          # Optional Google Custom Search provider
+          # Google Custom Search provider (fallback when SearXNG has no hit)
           SCRAPER_GOOGLE_CSE_KEY: ${{ secrets.SCRAPER_GOOGLE_CSE_KEY }}
           SCRAPER_GOOGLE_CSE_CX: ${{ secrets.SCRAPER_GOOGLE_CSE_CX }}
 
@@ -104,9 +132,9 @@ jobs:
           TEST_MIN_NON_KARRIERE_RANKED_JOBS: "1"
           TEST_AUTO_ENABLE_INSECURE_SSL_ON_FAIL: "true"
           SCRAPER_SSL_FALLBACK_INSECURE: "false"
-          # Optional self-hosted search provider (SearXNG)
-          SCRAPER_SEARXNG_URL: ${{ secrets.SCRAPER_SEARXNG_URL }}
-          SCRAPER_SEARXNG_KEY: ${{ secrets.SCRAPER_SEARXNG_KEY }}
+          # Local SearXNG started above (primary provider).
+          SCRAPER_SEARXNG_URL: "http://localhost:8080"
+          SCRAPER_SEARXNG_KEY: ""
           # Optional managed providers
           SCRAPER_SERPAPI_KEY: ${{ secrets.SCRAPER_SERPAPI_KEY }}
           SCRAPER_ZENSERP_KEY: ${{ secrets.SCRAPER_ZENSERP_KEY }}
@@ -157,9 +185,9 @@ jobs:
         run: python .github/scripts/scrape_extra.py
         continue-on-error: true
         env:
-          # Optional self-hosted search provider (SearXNG)
-          SCRAPER_SEARXNG_URL: ${{ secrets.SCRAPER_SEARXNG_URL }}
-          SCRAPER_SEARXNG_KEY: ${{ secrets.SCRAPER_SEARXNG_KEY }}
+          # Local SearXNG started above (primary provider).
+          SCRAPER_SEARXNG_URL: "http://localhost:8080"
+          SCRAPER_SEARXNG_KEY: ""
           # Optional managed providers
           SCRAPER_SERPAPI_KEY: ${{ secrets.SCRAPER_SERPAPI_KEY }}
           SCRAPER_ZENSERP_KEY: ${{ secrets.SCRAPER_ZENSERP_KEY }}
@@ -204,3 +232,11 @@ jobs:
           path: /tmp/jobs/
           retention-days: 7
           if-no-files-found: ignore
+
+      # ------------------------------------------------------------------
+      # Cleanup: stop the local SearXNG container (best-effort).
+      # ------------------------------------------------------------------
+      - name: Stop SearXNG
+        if: always()
+        run: |
+          docker rm -f searxng 2>/dev/null || true
