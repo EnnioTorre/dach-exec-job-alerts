@@ -347,6 +347,14 @@ _last_searxng_call = 0.0    # monotonic timestamp of the previous SearXNG call
 _LINKEDIN_LANG_CACHE: dict[str, str] = {}
 _linkedin_lang_enrich_used = 0
 
+# Generic job-page language enrichment for German-market boards (Stepstone,
+# karriere.at). Their listing cards only expose a title; many roles carry an
+# English-looking title but a German posting body. When a card's title looks
+# English we fetch the destination page and detect the language from its
+# description. Bounded per run and cached per URL.
+_PAGE_LANG_CACHE: dict[str, str] = {}
+_page_lang_enrich_used = 0
+
 # High-signal function/marker words for the German-vs-English language detector
 # (_infer_language_hint). Kept small and high-precision to avoid false hits.
 _DE_FUNCTION_WORDS = {
@@ -1574,6 +1582,67 @@ def _text(el) -> str:
     return el.get_text(strip=True) if el else ""
 
 
+def _fetch_job_page_language(url: str) -> str | None:
+    """
+    Fetch a destination job page and detect its language from the posting body
+    (JSON-LD description first, then a visible description container).
+    Returns 'de'/'en', or None if unavailable. Cached per URL and capped per run
+    (SCRAPER_PAGE_LANG_ENRICH_MAX, default 80) to bound runtime and 429 risk.
+    """
+    if not url or not url.startswith("http"):
+        return None
+    if url in _PAGE_LANG_CACHE:
+        return _PAGE_LANG_CACHE[url] or None
+
+    global _page_lang_enrich_used
+    cap = int(os.getenv("SCRAPER_PAGE_LANG_ENRICH_MAX", "80"))
+    if _page_lang_enrich_used >= cap:
+        return None
+    _page_lang_enrich_used += 1
+
+    html = fetch(url, retries=1)
+    if not html:
+        _PAGE_LANG_CACHE[url] = ""
+        return None
+
+    text = ""
+    for j in extract_jsonld_jobs(html):
+        if isinstance(j, dict) and j.get("description"):
+            text = str(j["description"])
+            break
+    if not text:
+        soup = BeautifulSoup(html, "html.parser")
+        el = (
+            soup.find(attrs={"data-at": re.compile(r"job-ad-content|listing-content", re.I)})
+            or soup.find(class_=re.compile(r"job-ad|description|listing__content|job-detail", re.I))
+        )
+        text = el.get_text(" ", strip=True) if el else ""
+    if not text:
+        _PAGE_LANG_CACHE[url] = ""
+        return None
+
+    lang = _infer_language_hint(re.sub(r"<[^>]+>", " ", text)[:2500])
+    _PAGE_LANG_CACHE[url] = lang
+    return lang
+
+
+def _german_market_lang_hint(title: str, url: str) -> str:
+    """
+    Language hint for a German-market board (Stepstone, karriere.at).
+
+    Default to 'de' (the correct prior for these boards). Only when the title
+    itself looks English — the ambiguous case — do we confirm against the
+    posting body, so a genuinely English role is labelled 'en' while an
+    English-titled German posting stays 'de'. Bounded/cached via
+    _fetch_job_page_language; falls back to 'de' when enrichment is unavailable.
+    """
+    if _infer_language_hint(title) != "en":
+        return "de"
+    if os.getenv("SCRAPER_PAGE_LANG_ENRICH", "true").lower() not in {"1", "true", "yes"}:
+        return "de"
+    return _fetch_job_page_language(url) or "de"
+
+
 def parse_stepstone(html: str, source_name: str) -> list[dict]:
     soup = BeautifulSoup(html, "html.parser")
     jobs: list[dict] = []
@@ -1597,7 +1666,7 @@ def parse_stepstone(html: str, source_name: str) -> list[dict]:
             "application_url": href,
             "publish_date": "",
             "salary_text": "",
-            "language_hint": "de",
+            "language_hint": _german_market_lang_hint(_text(title_el), href),
         })
     if not jobs:
         for card in soup.find_all("article", class_=re.compile(r"[Jj]ob[Cc]ard|[Jj]ob[Ii]tem")):
@@ -1614,7 +1683,7 @@ def parse_stepstone(html: str, source_name: str) -> list[dict]:
                 "application_url": link_el["href"] if link_el else "",
                 "publish_date": "",
                 "salary_text": "",
-                "language_hint": "de",
+                "language_hint": _german_market_lang_hint(_text(title_el), link_el["href"] if link_el else ""),
             })
     return jobs
 
@@ -1649,7 +1718,7 @@ def parse_karriere_at(html: str, source_name: str) -> list[dict]:
             "application_url": href,
             "publish_date": "",
             "salary_text": "",
-            "language_hint": "de",
+            "language_hint": _german_market_lang_hint(_text(title_el), href),
         })
     return jobs
 
