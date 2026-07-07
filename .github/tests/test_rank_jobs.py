@@ -1,0 +1,193 @@
+"""
+Unit tests for the deterministic ranking logic in `rank_jobs.py`.
+
+Focus areas:
+  - relevance gating (`is_relevant`, `is_relevant_relaxed`)
+  - Vienna-distance scoring buckets
+  - language / IT-management focus scoring
+  - the re-weighted `score_job` formula (distance 35% / language 35% /
+    IT relevance 30% — salary was removed)
+  - dedup fingerprinting
+
+These functions are pure and side-effect free, so no mocking is needed.
+"""
+
+import pytest
+
+import rank_jobs
+
+
+# ---------------------------------------------------------------------------
+# is_relevant
+# ---------------------------------------------------------------------------
+
+class TestIsRelevant:
+    def test_accepts_clear_leadership_role_with_job_url(self):
+        job = {"title": "Head of Engineering", "application_url": "https://acme.com/jobs/123"}
+        assert rank_jobs.is_relevant(job) is True
+
+    def test_accepts_cto_role(self):
+        job = {"title": "Chief Technology Officer (CTO)", "application_url": "https://acme.com/careers/cto-1"}
+        assert rank_jobs.is_relevant(job) is True
+
+    def test_rejects_excluded_sales_role(self):
+        job = {"title": "Senior Sales Manager", "application_url": "https://acme.com/jobs/9"}
+        assert rank_jobs.is_relevant(job) is False
+
+    def test_rejects_when_ai_marks_reject(self):
+        job = {
+            "title": "Head of Engineering",
+            "application_url": "https://acme.com/jobs/123",
+            "ai_relevance": "reject",
+        }
+        assert rank_jobs.is_relevant(job) is False
+
+    def test_rejects_non_job_informational_title(self):
+        job = {"title": "What is a CTO? Salary guide", "application_url": "https://acme.com/jobs/1"}
+        assert rank_jobs.is_relevant(job) is False
+
+    def test_rejects_search_engine_result_url(self):
+        job = {"title": "Head of Engineering", "application_url": "https://www.google.com/search?q=cto"}
+        assert rank_jobs.is_relevant(job) is False
+
+    def test_rejects_karriere_listing_page_without_numeric_id(self):
+        job = {"title": "Head of Engineering", "application_url": "https://www.karriere.at/jobs/head-of-engineering"}
+        assert rank_jobs.is_relevant(job) is False
+
+    def test_accepts_karriere_concrete_job_with_numeric_id(self):
+        job = {"title": "Head of Engineering", "application_url": "https://www.karriere.at/jobs/7821533"}
+        assert rank_jobs.is_relevant(job) is True
+
+    def test_missing_title_and_url_is_not_relevant(self):
+        assert rank_jobs.is_relevant({}) is False
+
+
+class TestIsRelevantRelaxed:
+    def test_relaxed_accepts_mgmt_plus_domain_without_url_hint(self):
+        job = {"title": "Director of Cloud", "source_url": "https://acme.io/x"}
+        assert rank_jobs.is_relevant_relaxed(job) is True
+
+    def test_relaxed_still_rejects_excluded_keyword(self):
+        job = {"title": "Head of Sales Engineering", "source_url": "https://acme.io/jobs/1"}
+        assert rank_jobs.is_relevant_relaxed(job) is False
+
+
+# ---------------------------------------------------------------------------
+# vienna_distance_score
+# ---------------------------------------------------------------------------
+
+class TestViennaDistanceScore:
+    @pytest.mark.parametrize(
+        "location,expected",
+        [
+            ("Wien, Österreich", 5.0),   # 0 km
+            ("Vienna", 5.0),
+            ("Graz", 4.2),               # ~145 km
+            ("Munich", 3.5),             # ~356 km
+            ("Zurich", 2.8),             # ~588 km
+        ],
+    )
+    def test_known_cities_map_to_expected_buckets(self, location, expected):
+        assert rank_jobs.vienna_distance_score(location) == expected
+
+    def test_empty_location_returns_neutral_default(self):
+        assert rank_jobs.vienna_distance_score("") == 2.4
+
+    def test_unknown_location_returns_neutral_default(self):
+        assert rank_jobs.vienna_distance_score("Atlantis") == 2.4
+
+    def test_remote_uses_dach_fallback_distance(self):
+        # "remote" → dach fallback (500 km) → 2.8 bucket
+        assert rank_jobs.vienna_distance_score("Remote (DACH)") == 2.8
+
+    def test_country_hint_only_austria(self):
+        # ".at" / "österreich" without a city → 280 km fallback → 3.5 bucket
+        assert rank_jobs.vienna_distance_score("Österreich") == 3.5
+
+
+# ---------------------------------------------------------------------------
+# language_score
+# ---------------------------------------------------------------------------
+
+class TestLanguageScore:
+    def test_english_scores_highest(self):
+        assert rank_jobs.language_score("en", "Acme") == 5.0
+
+    def test_german_scores_low(self):
+        assert rank_jobs.language_score("de", "Acme") == 1.2
+
+    def test_unknown_lang_with_international_company_gets_boost(self):
+        assert rank_jobs.language_score("", "Acme International GmbH") == 3.8
+
+    def test_unknown_lang_plain_company_is_neutral(self):
+        assert rank_jobs.language_score("", "Acme GmbH") == 2.8
+
+
+# ---------------------------------------------------------------------------
+# it_management_focus_score
+# ---------------------------------------------------------------------------
+
+class TestItManagementFocusScore:
+    def test_management_plus_engineering_is_top_score(self):
+        assert rank_jobs.it_management_focus_score("Head of Software Engineering") == 5.0
+
+    def test_management_only_is_low(self):
+        assert rank_jobs.it_management_focus_score("Head of Marketing") == 1.5
+
+    def test_individual_contributor_engineer(self):
+        assert rank_jobs.it_management_focus_score("Cloud Engineer") == 2.0
+
+    def test_excluded_keyword_forces_min(self):
+        assert rank_jobs.it_management_focus_score("Sales Engineer") == 1.0
+
+    def test_non_it_title(self):
+        assert rank_jobs.it_management_focus_score("Office Assistant") == 1.0
+
+
+# ---------------------------------------------------------------------------
+# score_job — re-weighted formula (no salary term)
+# ---------------------------------------------------------------------------
+
+class TestScoreJob:
+    def test_perfect_job_scores_five(self):
+        # Vienna (5.0) * .35 + en (5.0) * .35 + Head of Engineering (5.0) * .30 = 5.0
+        job = {"title": "Head of Engineering", "location": "Wien", "language_hint": "en", "company": "Acme"}
+        assert rank_jobs.score_job(job) == 5.0
+
+    def test_score_is_clamped_to_minimum_one(self):
+        job = {"title": "Office Assistant", "location": "Atlantis", "language_hint": "de", "company": "Acme"}
+        assert rank_jobs.score_job(job) >= 1.0
+
+    def test_score_never_exceeds_five(self):
+        job = {"title": "Head of Software Engineering", "location": "Vienna", "language_hint": "en", "company": "Acme International"}
+        assert rank_jobs.score_job(job) <= 5.0
+
+    def test_salary_text_is_ignored(self):
+        # Salary was removed from scoring; presence/absence must not change score.
+        base = {"title": "Head of Engineering", "location": "Wien", "language_hint": "en", "company": "Acme"}
+        with_salary = {**base, "salary_text": "EUR 200.000"}
+        assert rank_jobs.score_job(base) == rank_jobs.score_job(with_salary)
+
+    def test_english_role_outranks_identical_german_role(self):
+        en = {"title": "Head of Engineering", "location": "Wien", "language_hint": "en", "company": "Acme"}
+        de = {"title": "Head of Engineering", "location": "Wien", "language_hint": "de", "company": "Acme"}
+        assert rank_jobs.score_job(en) > rank_jobs.score_job(de)
+
+
+# ---------------------------------------------------------------------------
+# fingerprint (dedup key)
+# ---------------------------------------------------------------------------
+
+class TestFingerprint:
+    def test_case_and_whitespace_insensitive(self):
+        a = {"title": "Head  of   Engineering", "company": "Acme  GmbH"}
+        b = {"title": "head of engineering", "company": "acme gmbh"}
+        assert rank_jobs.fingerprint(a) == rank_jobs.fingerprint(b)
+
+    def test_different_company_yields_different_fingerprint(self):
+        a = {"title": "Head of Engineering", "company": "Acme"}
+        b = {"title": "Head of Engineering", "company": "Globex"}
+        assert rank_jobs.fingerprint(a) != rank_jobs.fingerprint(b)
+
+    def test_handles_missing_fields(self):
+        assert rank_jobs.fingerprint({}) == "|"
