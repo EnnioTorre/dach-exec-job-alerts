@@ -248,12 +248,19 @@ SOURCES = [
          "keywords": "Engineering Manager OR Head of Engineering OR CTO OR VP Engineering OR Tech Lead",
          "location": "Zurich, Switzerland", "start": "0",
      }), "region": "CH"},
+    # South Tyrol (Bolzano/Bozen) — German-speaking Italian province adjacent to
+    # Austria; a relevant, mostly German-language market missing from the rota.
+    {"name": "linkedin_bolzano_0", "type": "linkedin_api",
+     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
+         "keywords": "Engineering Manager OR Head of Engineering OR CTO OR VP Engineering OR Tech Lead OR Software Engineer",
+         "location": "Bolzano, Italy", "start": "0",
+     }), "region": "IT"},
 
     # =========================================================================
     # SERP proxies via SearXNG provider (google_proxy type only).
     #   Probe-validated 2026-07: single-site queries reliably yield ~20 job
     #   URLs each. SearXNG/Google throttles after ~8-9 rapid queries per run,
-    #   so this set is intentionally lean (8) and the provider spaces calls.
+    #   so this set is intentionally lean (9) and the provider spaces calls.
     #   Multi-site "OR site:" queries and Xing yielded poorly and were dropped.
     #   All Bing/DDG/Ecosia (search_proxy) sources were removed — they returned
     #   zero on the runner and are skipped by SCRAPER_SKIP_SEARCH_PROXIES.
@@ -298,6 +305,11 @@ SOURCES = [
          "q": 'site:indeed.com/viewjob OR site:indeed.de/viewjob "Engineering Manager" Austria',
          "num": "20",
      }), "region": "AT"},
+    {"name": "google_jobs_bolzano", "type": "google_proxy",
+     "url": "https://www.google.com/search?" + urlencode({
+         "q": 'site:linkedin.com/jobs/view ("Head of Engineering" OR "Engineering Manager" OR CTO OR "Tech Lead") (Bolzano OR Bozen OR "South Tyrol" OR Südtirol)',
+         "num": "20",
+     }), "region": "IT"},
 ]
 
 # Alternate URLs used when a source fetch fails or repeatedly returns no content.
@@ -696,7 +708,7 @@ def _parse_serp_provider_results(payload: dict, source_name: str) -> list[dict]:
             "application_url": link,
             "publish_date": "",
             "salary_text": "",
-            "language_hint": _infer_language_hint(f"{title} {company} {snippet}"),
+            "language_hint": _serp_lang_hint(title, company, snippet, link),
         })
 
     # De-dup by destination URL
@@ -742,7 +754,7 @@ def _parse_searxng_results(payload: dict, source_name: str) -> list[dict]:
             "application_url": link,
             "publish_date": "",
             "salary_text": "",
-            "language_hint": _infer_language_hint(f"{title} {company} {snippet}"),
+            "language_hint": _serp_lang_hint(title, company, snippet, link),
         })
 
     seen: set[str] = set()
@@ -787,7 +799,7 @@ def _parse_google_cse_results(payload: dict, source_name: str) -> list[dict]:
             "application_url": link,
             "publish_date": "",
             "salary_text": "",
-            "language_hint": _infer_language_hint(f"{title} {company} {snippet}"),
+            "language_hint": _serp_lang_hint(title, company, snippet, link),
         })
 
     seen: set[str] = set()
@@ -1357,7 +1369,7 @@ def parse_google_jobs(html: str, source_name: str) -> list[dict]:
             "application_url": url,
             "publish_date": "",
             "salary_text": "",
-            "language_hint": _infer_language_hint(f"{title} {company} {snippet}"),
+            "language_hint": _serp_lang_hint(title, company, snippet, url),
         })
 
     # Google layout
@@ -1497,6 +1509,49 @@ def _infer_language_hint(text: str) -> str:
     # Tie-break: any umlaut → German; otherwise English (pipeline default).
     return "de" if umlaut_hits else "en"
 
+
+# Job-board hosts whose postings are written for a German-language audience by
+# default. Used as the language fallback for SERP rows when reading the actual
+# posting body is unavailable (enrichment disabled or the per-run fetch cap is
+# hit) — better to lean 'de' on these than trust a short, English-looking SERP
+# snippet.
+_GERMAN_MARKET_HOST_RE = re.compile(
+    r"(?:stepstone\.(?:de|at)|karriere\.at|xing\.com|indeed\.(?:de|at))", re.I
+)
+
+
+def _serp_lang_hint(title: str, company: str, snippet: str, url: str) -> str:
+    """
+    Language hint for a SERP-proxied job row (LinkedIn/Stepstone/jobs.ch/…).
+
+    SERP titles + snippets are short and frequently English even when the
+    underlying posting is German, so a snippet-only guess mislabels many
+    DACH-market roles as 'en' (which the ranker then over-rewards). We first
+    guess from the combined SERP text; only for the ambiguous English-looking
+    case do we confirm against the real posting body — the LinkedIn guest
+    endpoint for linkedin.com/jobs/view URLs, otherwise the generic destination
+    page. Both enrichers are bounded/cached per run. When enrichment is
+    unavailable we fall back to 'de' for unambiguously German-audience boards,
+    otherwise keep the snippet guess.
+    """
+    guess = _infer_language_hint(f"{title} {company} {snippet}")
+    if guess != "en":
+        return guess
+
+    u = (url or "").lower()
+    if os.getenv("SCRAPER_PAGE_LANG_ENRICH", "true").lower() in {"1", "true", "yes"}:
+        m = re.search(r"linkedin\.com/jobs/view/(\d+)", u)
+        enriched = (
+            _fetch_linkedin_job_language(m.group(1))
+            if m
+            else _fetch_job_page_language(url)
+        )
+        if enriched:
+            return enriched
+
+    if _GERMAN_MARKET_HOST_RE.search(u):
+        return "de"
+    return guess
 
 
 def _extract_salary(text: str) -> str:

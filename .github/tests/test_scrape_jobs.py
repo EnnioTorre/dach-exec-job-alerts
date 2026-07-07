@@ -82,6 +82,107 @@ class TestGermanMarketLangHint:
 
 
 # ---------------------------------------------------------------------------
+# _serp_lang_hint
+# ---------------------------------------------------------------------------
+
+class TestSerpLangHint:
+    def test_german_snippet_returns_de_without_enrichment(self, monkeypatch):
+        # A clearly German snippet must not trigger any network enrichment.
+        def _boom(*a, **k):  # pragma: no cover - must not be called
+            raise AssertionError("enrichment should not run for a German snippet")
+
+        monkeypatch.setattr(scrape_jobs, "_fetch_linkedin_job_language", _boom)
+        monkeypatch.setattr(scrape_jobs, "_fetch_job_page_language", _boom)
+        lang = scrape_jobs._serp_lang_hint(
+            "Softwareentwickler (m/w/d)", "Acme GmbH",
+            "Wir suchen einen Leiter für unser Unternehmen mit Erfahrung.",
+            "https://www.linkedin.com/jobs/view/123",
+        )
+        assert lang == "de"
+
+    def test_english_linkedin_row_uses_linkedin_enrichment(self, monkeypatch):
+        monkeypatch.setenv("SCRAPER_PAGE_LANG_ENRICH", "true")
+        seen = {}
+
+        def _ld(job_id):
+            seen["job_id"] = job_id
+            return "de"
+
+        monkeypatch.setattr(scrape_jobs, "_fetch_linkedin_job_language", _ld)
+        monkeypatch.setattr(scrape_jobs, "_fetch_job_page_language",
+                            lambda url: (_ for _ in ()).throw(AssertionError("wrong enricher")))
+        lang = scrape_jobs._serp_lang_hint(
+            "Head of Engineering", "Acme",
+            "Lead our platform team.",
+            "https://www.linkedin.com/jobs/view/4055123/",
+        )
+        assert lang == "de"
+        assert seen["job_id"] == "4055123"
+
+    def test_english_generic_row_uses_page_enrichment(self, monkeypatch):
+        monkeypatch.setenv("SCRAPER_PAGE_LANG_ENRICH", "true")
+        monkeypatch.setattr(scrape_jobs, "_fetch_job_page_language", lambda url: "de")
+        lang = scrape_jobs._serp_lang_hint(
+            "Engineering Manager", "Acme",
+            "Join our team.",
+            "https://www.stepstone.de/jobs/12345",
+        )
+        assert lang == "de"
+
+    def test_disabled_enrichment_leans_de_on_german_market_host(self, monkeypatch):
+        monkeypatch.setenv("SCRAPER_PAGE_LANG_ENRICH", "false")
+        lang = scrape_jobs._serp_lang_hint(
+            "Engineering Manager", "Acme",
+            "Join our team.",
+            "https://www.stepstone.at/jobs/999",
+        )
+        assert lang == "de"
+
+    def test_disabled_enrichment_keeps_en_on_neutral_host(self, monkeypatch):
+        monkeypatch.setenv("SCRAPER_PAGE_LANG_ENRICH", "false")
+        lang = scrape_jobs._serp_lang_hint(
+            "Engineering Manager", "Acme",
+            "Join our team.",
+            "https://www.jobs.ch/en/vacancies/12345",
+        )
+        assert lang == "en"
+
+    def test_enrichment_unavailable_keeps_en_on_neutral_host(self, monkeypatch):
+        # LinkedIn URL but enrichment returns None → keep the English guess
+        # (linkedin.com is not a German-market fallback host).
+        monkeypatch.setenv("SCRAPER_PAGE_LANG_ENRICH", "true")
+        monkeypatch.setattr(scrape_jobs, "_fetch_linkedin_job_language", lambda job_id: None)
+        lang = scrape_jobs._serp_lang_hint(
+            "Head of Engineering", "Acme",
+            "Lead our platform team.",
+            "https://www.linkedin.com/jobs/view/777/",
+        )
+        assert lang == "en"
+
+
+# ---------------------------------------------------------------------------
+# Bolzano / South Tyrol source coverage
+# ---------------------------------------------------------------------------
+
+class TestBolzanoSources:
+    def test_linkedin_bolzano_source_present(self):
+        names = {s["name"] for s in scrape_jobs.SOURCES}
+        assert "linkedin_bolzano_0" in names
+
+    def test_google_bolzano_source_present_and_mapped(self):
+        by_name = {s["name"]: s for s in scrape_jobs.SOURCES}
+        assert "google_jobs_bolzano" in by_name
+        assert by_name["google_jobs_bolzano"]["region"] == "IT"
+        # The parser mapping for the google Bolzano source must exist.
+        assert "google_jobs_bolzano" in scrape_jobs.PARSER_MAP
+
+    def test_italy_region_matches_bolzano_locations(self):
+        assert scrape_jobs._region_matches("Bolzano, Italy", "IT")
+        assert scrape_jobs._region_matches("Bozen, Südtirol", "IT")
+        assert not scrape_jobs._region_matches("Berlin, Germany", "IT")
+
+
+# ---------------------------------------------------------------------------
 # _domain_family / _is_google_url
 # ---------------------------------------------------------------------------
 

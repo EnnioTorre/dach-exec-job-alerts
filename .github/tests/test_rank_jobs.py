@@ -85,6 +85,8 @@ class TestViennaDistanceScore:
             ("Graz", 4.2),               # ~145 km
             ("Munich", 3.5),             # ~356 km
             ("Zurich", 2.8),             # ~588 km
+            ("Bolzano", 3.5),            # ~426 km (South Tyrol)
+            ("Bozen, Südtirol", 3.5),
         ],
     )
     def test_known_cities_map_to_expected_buckets(self, location, expected):
@@ -103,6 +105,10 @@ class TestViennaDistanceScore:
     def test_country_hint_only_austria(self):
         # ".at" / "österreich" without a city → 280 km fallback → 3.5 bucket
         assert rank_jobs.vienna_distance_score("Österreich") == 3.5
+
+    def test_italy_hint_only_uses_fallback_distance(self):
+        # "italy" / "south tyrol" without a city → 400 km fallback → 3.5 bucket
+        assert rank_jobs.vienna_distance_score("South Tyrol, Italy") == 3.5
 
 
 # ---------------------------------------------------------------------------

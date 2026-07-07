@@ -308,18 +308,23 @@ _DACH_LOCATION_POINTS: dict[str, tuple[float, float]] = {
     "geneva": (46.2044, 6.1432),
     "genf": (46.2044, 6.1432),
     "lausanne": (46.5197, 6.6323),
+    # South Tyrol (German-speaking northern Italy) — ~400 km from Vienna.
+    "bolzano": (46.4983, 11.3548),
+    "bozen": (46.4983, 11.3548),
 }
 
 _COUNTRY_DISTANCE_FALLBACK = {
     "at": 280.0,
     "de": 560.0,
     "ch": 700.0,
+    "it": 400.0,
     "dach": 500.0,
 }
 
 _AUSTRIA_HINTS = ["austria", "österreich", ".at"]
 _GERMANY_HINTS = ["germany", "deutschland", ".de"]
 _SWITZERLAND_HINTS = ["switzerland", "schweiz", ".ch"]
+_ITALY_HINTS = ["italy", "italia", "south tyrol", "südtirol", "alto adige", ".it"]
 
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     r = 6371.0
@@ -349,6 +354,8 @@ def _distance_from_vienna_km(location: str) -> float | None:
         return _COUNTRY_DISTANCE_FALLBACK["de"]
     if any(k in loc for k in _SWITZERLAND_HINTS):
         return _COUNTRY_DISTANCE_FALLBACK["ch"]
+    if any(k in loc for k in _ITALY_HINTS):
+        return _COUNTRY_DISTANCE_FALLBACK["it"]
     return None
 
 
