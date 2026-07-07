@@ -134,6 +134,26 @@ def main() -> int:
 
     os.makedirs("/tmp/jobs", exist_ok=True)
 
+    # Read-only fast path: if the pipeline's existing artifacts already pass
+    # validation, do NOT re-scrape. Re-running the scraper here would overwrite
+    # jobs_raw.json/jobs_ranked.json with a fresh (often throttled, lower-yield)
+    # pass while jobs_raw_ai.json keeps the first-pass data — desyncing the
+    # pipeline so the digest reports stale/inconsistent per-source stats. The
+    # retry loop below is only needed to self-heal a genuinely bad first pass.
+    if RAW.exists() and RANKED.exists():
+        ok, reason = validate(
+            min_raw,
+            min_ranked,
+            min_active_sources,
+            min_ranked_sources,
+            min_non_karriere_ranked_sources,
+            min_non_karriere_ranked_jobs,
+        )
+        if ok:
+            print(f"Existing pipeline output already valid — skipping re-scrape.\nvalidation: {reason}")
+            return 0
+        print(f"Existing output invalid ({reason}); entering re-scrape loop.")
+
     last_reason = ""
     for i in range(1, attempts + 1):
         print(f"\n=== Validation attempt {i}/{attempts} ===")
