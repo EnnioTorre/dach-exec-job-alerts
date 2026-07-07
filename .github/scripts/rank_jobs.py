@@ -355,27 +355,6 @@ def vienna_distance_score(location: str) -> float:
     return 1.8
 
 
-def salary_score(salary_text: str) -> float:
-    if not salary_text:
-        return 2.0
-    # Extract all numbers; treat largest as the ceiling/max
-    nums = [int(n.replace(".", "").replace(",", ""))
-            for n in re.findall(r"[\d.,]+", salary_text)
-            if n.replace(".", "").replace(",", "").isdigit()]
-    if not nums:
-        return 2.0
-    peak = max(nums)
-    if peak >= 150_000:
-        return 5.0
-    if peak >= 120_000:
-        return 4.0
-    if peak >= 100_000:
-        return 3.0
-    if peak >= 80_000:
-        return 2.0
-    return 1.0
-
-
 def language_score(language_hint: str, company: str) -> float:
     lang = (language_hint or "").lower()
     if lang == "en":
@@ -430,12 +409,11 @@ def it_management_focus_score(title: str) -> float:
 
 def score_job(job: dict) -> float:
     ls = vienna_distance_score(job.get("location", ""))
-    ss = salary_score(job.get("salary_text", ""))
     lang = language_score(job.get("language_hint", ""), job.get("company", ""))
     focus = it_management_focus_score(job.get("title", ""))
-    # Weighted formula: distance from Vienna 30%, language 30%,
-    # salary 20%, IT relevance 20%.
-    raw = 0.30 * ls + 0.30 * lang + 0.20 * ss + 0.20 * focus
+    # Weighted formula: distance from Vienna 35%, language 35%,
+    # IT relevance 30%. (Salary was dropped: no active source populates it.)
+    raw = 0.35 * ls + 0.35 * lang + 0.30 * focus
     return round(max(1.0, min(5.0, raw)), 1)
 
 

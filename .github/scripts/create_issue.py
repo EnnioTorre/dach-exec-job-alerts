@@ -54,7 +54,7 @@ def format_body(data: dict) -> str:
         f"**Sources scraped:** {len(stats)}",
         f"**Total raw listings:** {data.get('total_raw', '?')}",
         f"**After filter + dedup:** {data.get('total_deduped', '?')}",
-        "**Ranking:** weighted formula (distance 30% · language 30% · salary 20% · IT relevance 20%)",
+        "**Ranking:** weighted formula (distance 35% · language 35% · IT relevance 30%)",
         f"**MCP/AI source merge:** {'✅ Yes' if data.get('extra_sources_merged') else '⚠️ No — Python sources only'}",
         f"**AI pre-rank cleanup:** {'✅ Yes' if data.get('ai_pre_rank_enriched') else '⚠️ No'}",
         "",
@@ -90,8 +90,8 @@ def format_body(data: dict) -> str:
         return _is_job_ad_url(job.get("application_url") or job.get("source_url") or "")
 
     useful_jobs = [j for j in jobs if _looks_useful(j)]
-    # Rank strictly by the weighted score (distance 30%, language 30%,
-    # salary 20%, IT relevance 20%) computed in rank_jobs.py.
+    # Rank strictly by the weighted score (distance 35%, language 35%,
+    # IT relevance 30%) computed in rank_jobs.py.
     digest_jobs = sorted(
         useful_jobs,
         key=lambda j: j.get("score", 0),
@@ -99,24 +99,28 @@ def format_body(data: dict) -> str:
     )[:15]
 
     # ---- Top 15 ranked roles (weighted score) ----
+    def _cell(text: str) -> str:
+        # Escape pipe chars so titles like "... | Remote | Europe" don't break
+        # the markdown table layout.
+        return str(text).replace("|", "\\|")
+
     lines += [
         "## 🏆 Top 15 Ranked Roles",
         "",
-        "_Weighted score = distance from Vienna 30% · language 30% · salary 20% · IT relevance 20% (0–5 scale)._",
+        "_Weighted score = distance from Vienna 35% · language 35% · IT relevance 30% (0–5 scale)._",
         "",
-        "| # | Role | Company | Location | Lang | Score | Salary |",
-        "|---|------|---------|----------|------|-------|--------|",
+        "| # | Role | Company | Location | Lang | Score |",
+        "|---|------|---------|----------|------|-------|",
     ]
     for i, j in enumerate(digest_jobs, 1):
-        title = j.get("title", "N/A")
-        company = j.get("company", "N/A")
-        location = j.get("location", "N/A")
+        title = _cell(j.get("title", "N/A"))
+        company = _cell(j.get("company", "N/A"))
+        location = _cell(j.get("location", "N/A"))
         lang = (j.get("language_hint") or "").lower() or "n/a"
         score = j.get("score", "")
-        salary = j.get("salary_text") or "N/A"
         url = j.get("application_url") or j.get("source_url", "")
         title_md = f"[{title}]({url})" if url else title
-        lines.append(f"| {i} | {title_md} | {company} | {location} | {lang} | {score} | {salary} |")
+        lines.append(f"| {i} | {title_md} | {company} | {location} | {lang} | {score} |")
     lines.append("")
 
     # ---- Source performance table ----
