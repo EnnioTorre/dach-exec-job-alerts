@@ -1895,6 +1895,81 @@ PARSER_MAP = {
 # Main
 # ---------------------------------------------------------------------------
 
+
+def _source_family(job: dict) -> str:
+    """Canonical job-board family for a job, derived from its destination host."""
+    url = (job.get("application_url") or job.get("source_url") or "").lower()
+    host = urlparse(url).netloc.lower()
+    if "karriere.at" in host:
+        return "karriere.at"
+    if "stepstone." in host:
+        return "stepstone"
+    if "linkedin.com" in host:
+        return "linkedin"
+    if "indeed." in host:
+        return "indeed"
+    if "jobs.ch" in host:
+        return "jobs.ch"
+    if "arbeitnow.com" in host:
+        return "arbeitnow"
+    return host or "unknown"
+
+
+def _parse_source_content(content: str, name: str, src_type: str) -> list[dict]:
+    """
+    Parse fetched content into job dicts according to the source type.
+
+    - rss           → parse_rss
+    - json_api      → parse_json_jobs
+    - linkedin_api  → parse_linkedin_guest_api
+    - google/search proxy → RSS when the body looks like XML, else SERP HTML
+    - html (default)→ JSON-LD first, then the site-specific parser in PARSER_MAP
+    """
+    if src_type == "rss":
+        return parse_rss(content, name)
+    if src_type == "json_api":
+        return parse_json_jobs(content, name)
+    if src_type == "linkedin_api":
+        return parse_linkedin_guest_api(content, name)
+    if src_type in {"google_proxy", "search_proxy"}:
+        if _looks_like_xml(content):
+            return parse_rss(content, name)
+        return parse_google_jobs(content, name)
+    # html: JSON-LD first, fall back to the site-specific HTML parser.
+    jobs = [normalize_jsonld(j, name) for j in extract_jsonld_jobs(content)]
+    if jobs:
+        return jobs
+    parser = PARSER_MAP.get(name)
+    return parser(content, name) if parser else []
+
+
+def _dedup_by_source_family(jobs: list[dict]) -> list[dict]:
+    """
+    Collapse local duplicates within the same job-board family while letting
+    different boards keep distinct copies of the same role.
+    """
+    seen: set[str] = set()
+    unique: list[dict] = []
+    for j in jobs:
+        fp = (
+            f"{(j.get('title') or '').lower().strip()}|"
+            f"{(j.get('company') or '').lower().strip()}|"
+            f"{_source_family(j)}"
+        )
+        if fp not in seen:
+            seen.add(fp)
+            unique.append(j)
+    return unique
+
+
+def _count_by(jobs: list[dict], key_fn) -> dict[str, int]:
+    """Tally jobs into a {key: count} dict using ``key_fn`` to derive the key."""
+    counts: dict[str, int] = {}
+    for j in jobs:
+        k = key_fn(j)
+        counts[k] = counts.get(k, 0) + 1
+    return counts
+
 def main() -> None:
     os.makedirs("/tmp/jobs", exist_ok=True)
     all_jobs: list[dict] = []
@@ -1974,35 +2049,8 @@ def main() -> None:
             failed_fetch_sources.append(name)
             continue
 
-        if src_type == "rss":
-            jobs = parse_rss(content, name)
-            print(f"  RSS: {len(jobs)} jobs")
-        elif src_type == "json_api":
-            jobs = parse_json_jobs(content, name)
-            print(f"  JSON API: {len(jobs)} jobs")
-        elif src_type == "linkedin_api":
-            jobs = parse_linkedin_guest_api(content, name)
-            print(f"  LinkedIn API: {len(jobs)} jobs")
-        elif src_type in {"google_proxy", "search_proxy"}:
-            if _looks_like_xml(content):
-                jobs = parse_rss(content, name)
-                print(f"  Proxy RSS: {len(jobs)} jobs")
-            else:
-                jobs = parse_google_jobs(content, name)
-                print(f"  Google proxy: {len(jobs)} jobs")
-        else:
-            # html: try JSON-LD first, fall back to site-specific HTML parser
-            jobs = [normalize_jsonld(j, name) for j in extract_jsonld_jobs(content)]
-            if jobs:
-                print(f"  JSON-LD: {len(jobs)} jobs")
-            else:
-                parser = PARSER_MAP.get(name)
-                if parser:
-                    jobs = parser(content, name)
-                    print(f"  HTML parser ({parser.__name__}): {len(jobs)} jobs")
-                else:
-                    print(f"  No parser for {name}")
-                    jobs = []
+        jobs = _parse_source_content(content, name, src_type)
+        print(f"  Parsed [{src_type}]: {len(jobs)} jobs")
 
         # Drop records without a title
         jobs = [j for j in jobs if j.get("title")]
@@ -2037,17 +2085,10 @@ def main() -> None:
                 if not alt_content:
                     continue
 
-                if src_type in {"google_proxy", "search_proxy"}:
-                    if _looks_like_xml(alt_content):
-                        alt_jobs = parse_rss(alt_content, name)
-                    else:
-                        alt_jobs = parse_google_jobs(alt_content, name)
-                elif src_type == "rss":
-                    alt_jobs = parse_rss(alt_content, name)
-                elif src_type == "json_api":
-                    alt_jobs = parse_json_jobs(alt_content, name)
-                elif src_type == "linkedin_api":
-                    alt_jobs = parse_linkedin_guest_api(alt_content, name)
+                # Retry parsing only re-parses feed/proxy types; html sources
+                # are intentionally not re-parsed here (kept as before).
+                if src_type in {"google_proxy", "search_proxy", "rss", "json_api", "linkedin_api"}:
+                    alt_jobs = _parse_source_content(alt_content, name, src_type)
                 else:
                     alt_jobs = []
 
@@ -2084,46 +2125,16 @@ def main() -> None:
         )
         raise SystemExit(2)
 
-    def _source_family(job: dict) -> str:
-        url = (job.get("application_url") or job.get("source_url") or "").lower()
-        host = urlparse(url).netloc.lower()
-        if "karriere.at" in host:
-            return "karriere.at"
-        if "stepstone." in host:
-            return "stepstone"
-        if "linkedin.com" in host:
-            return "linkedin"
-        if "indeed." in host:
-            return "indeed"
-        if "jobs.ch" in host:
-            return "jobs.ch"
-        if "arbeitnow.com" in host:
-            return "arbeitnow"
-        return host or "unknown"
-
-    # Deduplicate exact source-family jobs so different job boards can keep
-    # distinct copies of the same role while still collapsing local duplicates.
-    _seen_raw: set[str] = set()
-    _unique: list[dict] = []
-    for j in all_jobs:
-        fp = f"{(j.get('title') or '').lower().strip()}|{(j.get('company') or '').lower().strip()}|{_source_family(j)}"
-        if fp not in _seen_raw:
-            _seen_raw.add(fp)
-            _unique.append(j)
-    all_jobs = _unique
+    # Deduplicate within each source family so different job boards can keep
+    # distinct copies of the same role while local duplicates are collapsed.
+    all_jobs = _dedup_by_source_family(all_jobs)
     print(f"After raw dedup: {len(all_jobs)} unique jobs")
 
     # Authoritative per-source usefulness: how many de-duplicated jobs each
     # source contributed to the full pool (computed BEFORE the [:200] downstream
     # cap so late-listed sources are not falsely reported as dead weight).
-    deduped_source_stats: dict[str, int] = {}
-    for j in all_jobs:
-        src = j.get("source_name", "unknown")
-        deduped_source_stats[src] = deduped_source_stats.get(src, 0) + 1
-    family_stats: dict[str, int] = {}
-    for j in all_jobs:
-        fam = _source_family(j)
-        family_stats[fam] = family_stats.get(fam, 0) + 1
+    deduped_source_stats = _count_by(all_jobs, lambda j: j.get("source_name", "unknown"))
+    family_stats = _count_by(all_jobs, _source_family)
 
     linkedin_count = family_stats.get("linkedin", 0)
     karriere_count = family_stats.get("karriere.at", 0)

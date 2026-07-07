@@ -7,6 +7,8 @@ Focus areas:
   - URL/host helpers: `_domain_family`, `_is_google_url`, `_extract_company_from_host`
   - misc: `_clean_text`, `_extract_salary`, `_parse_retry_after`,
     `_exponential_backoff_delay`
+  - refactor-extracted helpers: `_source_family`, `_dedup_by_source_family`,
+    `_count_by`, `_parse_source_content`
 
 Network is never hit: the one function that would fetch a page
 (`_german_market_lang_hint`) is exercised with monkeypatched enrichment.
@@ -181,3 +183,128 @@ class TestExponentialBackoffDelay:
         d = scrape_jobs._exponential_backoff_delay(20, base=1.0, max_delay=5.0)
         # capped delay is 5.0, jitter adds up to 5.0 → never exceeds 10.0
         assert d <= 10.0
+
+
+# ---------------------------------------------------------------------------
+# _source_family (extracted from main() during refactor)
+# ---------------------------------------------------------------------------
+
+class TestSourceFamily:
+    @pytest.mark.parametrize(
+        "url,expected",
+        [
+            ("https://www.karriere.at/jobs/123", "karriere.at"),
+            ("https://www.stepstone.de/stellenangebote/1", "stepstone"),
+            ("https://at.linkedin.com/jobs/view/1", "linkedin"),
+            ("https://de.indeed.com/viewjob?jk=1", "indeed"),
+            ("https://www.jobs.ch/en/vacancies/1", "jobs.ch"),
+            ("https://www.arbeitnow.com/jobs/1", "arbeitnow"),
+        ],
+    )
+    def test_known_families(self, url, expected):
+        assert scrape_jobs._source_family({"application_url": url}) == expected
+
+    def test_falls_back_to_source_url(self):
+        assert scrape_jobs._source_family({"source_url": "https://www.karriere.at/x"}) == "karriere.at"
+
+    def test_unknown_host_returns_host(self):
+        assert scrape_jobs._source_family({"application_url": "https://acme.io/jobs/1"}) == "acme.io"
+
+    def test_no_url_returns_unknown(self):
+        assert scrape_jobs._source_family({}) == "unknown"
+
+
+# ---------------------------------------------------------------------------
+# _dedup_by_source_family (extracted from main() during refactor)
+# ---------------------------------------------------------------------------
+
+class TestDedupBySourceFamily:
+    def test_collapses_same_title_company_and_family(self):
+        jobs = [
+            {"title": "CTO", "company": "Acme", "application_url": "https://karriere.at/jobs/1"},
+            {"title": "cto", "company": "acme", "application_url": "https://karriere.at/jobs/2"},
+        ]
+        assert len(scrape_jobs._dedup_by_source_family(jobs)) == 1
+
+    def test_keeps_same_role_across_different_boards(self):
+        jobs = [
+            {"title": "CTO", "company": "Acme", "application_url": "https://karriere.at/jobs/1"},
+            {"title": "CTO", "company": "Acme", "application_url": "https://at.linkedin.com/jobs/view/2"},
+        ]
+        assert len(scrape_jobs._dedup_by_source_family(jobs)) == 2
+
+    def test_preserves_input_order(self):
+        jobs = [
+            {"title": "A", "company": "X", "application_url": "https://karriere.at/1"},
+            {"title": "B", "company": "Y", "application_url": "https://karriere.at/2"},
+        ]
+        out = scrape_jobs._dedup_by_source_family(jobs)
+        assert [j["title"] for j in out] == ["A", "B"]
+
+    def test_empty_input(self):
+        assert scrape_jobs._dedup_by_source_family([]) == []
+
+
+# ---------------------------------------------------------------------------
+# _count_by (extracted from main() during refactor)
+# ---------------------------------------------------------------------------
+
+class TestCountBy:
+    def test_counts_by_source_name(self):
+        jobs = [
+            {"source_name": "a"},
+            {"source_name": "a"},
+            {"source_name": "b"},
+        ]
+        assert scrape_jobs._count_by(jobs, lambda j: j.get("source_name", "unknown")) == {"a": 2, "b": 1}
+
+    def test_missing_key_uses_default(self):
+        jobs = [{}, {"source_name": "a"}]
+        assert scrape_jobs._count_by(jobs, lambda j: j.get("source_name", "unknown")) == {"unknown": 1, "a": 1}
+
+    def test_empty_input(self):
+        assert scrape_jobs._count_by([], lambda j: "x") == {}
+
+
+# ---------------------------------------------------------------------------
+# _parse_source_content (extracted dispatch; behavior-preserving)
+# ---------------------------------------------------------------------------
+
+class TestParseSourceContent:
+    def test_rss_dispatches_to_parse_rss(self, monkeypatch):
+        monkeypatch.setattr(scrape_jobs, "parse_rss", lambda c, n: [{"via": "rss"}])
+        assert scrape_jobs._parse_source_content("x", "src", "rss") == [{"via": "rss"}]
+
+    def test_json_api_dispatches_to_parse_json_jobs(self, monkeypatch):
+        monkeypatch.setattr(scrape_jobs, "parse_json_jobs", lambda c, n: [{"via": "json"}])
+        assert scrape_jobs._parse_source_content("x", "src", "json_api") == [{"via": "json"}]
+
+    def test_linkedin_api_dispatches_to_guest_parser(self, monkeypatch):
+        monkeypatch.setattr(scrape_jobs, "parse_linkedin_guest_api", lambda c, n: [{"via": "li"}])
+        assert scrape_jobs._parse_source_content("x", "src", "linkedin_api") == [{"via": "li"}]
+
+    def test_proxy_xml_body_uses_rss(self, monkeypatch):
+        monkeypatch.setattr(scrape_jobs, "_looks_like_xml", lambda c: True)
+        monkeypatch.setattr(scrape_jobs, "parse_rss", lambda c, n: [{"via": "proxy_rss"}])
+        assert scrape_jobs._parse_source_content("<xml/>", "src", "google_proxy") == [{"via": "proxy_rss"}]
+
+    def test_proxy_html_body_uses_google_jobs(self, monkeypatch):
+        monkeypatch.setattr(scrape_jobs, "_looks_like_xml", lambda c: False)
+        monkeypatch.setattr(scrape_jobs, "parse_google_jobs", lambda c, n: [{"via": "serp"}])
+        assert scrape_jobs._parse_source_content("<html/>", "src", "search_proxy") == [{"via": "serp"}]
+
+    def test_html_prefers_jsonld_when_present(self, monkeypatch):
+        monkeypatch.setattr(scrape_jobs, "extract_jsonld_jobs", lambda c: [{"raw": 1}])
+        monkeypatch.setattr(scrape_jobs, "normalize_jsonld", lambda j, n: {"via": "jsonld"})
+        assert scrape_jobs._parse_source_content("<html/>", "src", "html") == [{"via": "jsonld"}]
+
+    def test_html_falls_back_to_site_parser(self, monkeypatch):
+        monkeypatch.setattr(scrape_jobs, "extract_jsonld_jobs", lambda c: [])
+        monkeypatch.setattr(scrape_jobs, "PARSER_MAP", {"karriere_at_cto": lambda c, n: [{"via": "html_parser"}]})
+        assert scrape_jobs._parse_source_content("<html/>", "karriere_at_cto", "html") == [{"via": "html_parser"}]
+
+    def test_html_no_jsonld_no_parser_returns_empty(self, monkeypatch):
+        monkeypatch.setattr(scrape_jobs, "extract_jsonld_jobs", lambda c: [])
+        monkeypatch.setattr(scrape_jobs, "PARSER_MAP", {})
+        assert scrape_jobs._parse_source_content("<html/>", "unknown_src", "html") == []
+
