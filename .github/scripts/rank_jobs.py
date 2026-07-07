@@ -178,24 +178,49 @@ TECH_IC_KEYWORDS = [
 ]
 
 
+def _hard_reject_common(title: str, url: str, ai_rel: str, ai_url_quality: str) -> bool:
+    """
+    Reject checks shared by both the strict and relaxed relevance gates.
+    Returns True when the job should be rejected outright.
+    """
+    if ai_rel == "reject":
+        return True
+    if ai_url_quality in {"search", "listing"}:
+        return True
+    if any(re.search(p, title) for p in NON_JOB_TITLE_PATTERNS):
+        return True
+    if any(host in url for host in ("bing.com/search", "google.com/search", "duckduckgo.com/html")):
+        return True
+    if any(p in url for p in BAD_URL_PATTERNS):
+        return True
+    return False
+
+
+def _source_domain_ok(job: dict) -> bool:
+    """Enforce source-domain consistency (especially for proxy RSS results)."""
+    src = (job.get("source_name") or "").lower()
+    url = (job.get("application_url") or job.get("source_url") or "").lower()
+    host = urlparse(url).netloc.lower()
+    if "stepstone" in src:
+        return "stepstone." in host
+    if "indeed" in src:
+        return "indeed." in host
+    if "linkedin" in src:
+        return "linkedin.com" in host
+    if src == "jobs_ch":
+        return "jobs.ch" in host
+    if src.startswith("karriere_"):
+        return "karriere.at" in host
+    return True
+
+
 def is_relevant(job: dict) -> bool:
     title = (job.get("title") or "").lower()
     url = (job.get("application_url") or job.get("source_url") or "").lower()
     ai_rel = (job.get("ai_relevance") or "").lower()
     ai_url_quality = (job.get("ai_url_quality") or "").lower()
 
-    if ai_rel == "reject":
-        return False
-    if ai_url_quality in {"search", "listing"}:
-        return False
-
-    if any(re.search(p, title) for p in NON_JOB_TITLE_PATTERNS):
-        return False
-
-    if any(host in url for host in ("bing.com/search", "google.com/search", "duckduckgo.com/html")):
-        return False
-
-    if any(p in url for p in BAD_URL_PATTERNS):
+    if _hard_reject_common(title, url, ai_rel, ai_url_quality):
         return False
 
     # If URL lacks typical job path hints, require stronger job-title signal.
@@ -234,16 +259,7 @@ def is_relevant_relaxed(job: dict) -> bool:
     ai_rel = (job.get("ai_relevance") or "").lower()
     ai_url_quality = (job.get("ai_url_quality") or "").lower()
 
-    if ai_rel == "reject":
-        return False
-    if ai_url_quality in {"search", "listing"}:
-        return False
-
-    if any(re.search(p, title) for p in NON_JOB_TITLE_PATTERNS):
-        return False
-    if any(host in url for host in ("bing.com/search", "google.com/search", "duckduckgo.com/html")):
-        return False
-    if any(p in url for p in BAD_URL_PATTERNS):
+    if _hard_reject_common(title, url, ai_rel, ai_url_quality):
         return False
     if any(kw in title for kw in EXCLUDE_KEYWORDS):
         return False
@@ -448,22 +464,6 @@ def main() -> None:
     relevant = [j for j in jobs if is_relevant(j)]
 
     # 1b. Enforce source-domain consistency (especially for proxy RSS results).
-    def _source_domain_ok(job: dict) -> bool:
-        src = (job.get("source_name") or "").lower()
-        url = (job.get("application_url") or job.get("source_url") or "").lower()
-        host = urlparse(url).netloc.lower()
-        if "stepstone" in src:
-            return "stepstone." in host
-        if "indeed" in src:
-            return "indeed." in host
-        if "linkedin" in src:
-            return "linkedin.com" in host
-        if src == "jobs_ch":
-            return "jobs.ch" in host
-        if src.startswith("karriere_"):
-            return "karriere.at" in host
-        return True
-
     relevant = [j for j in relevant if _source_domain_ok(j)]
     print(f"After title filter: {len(relevant)}")
 

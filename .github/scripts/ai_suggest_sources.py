@@ -19,11 +19,12 @@ import sys
 from datetime import date
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(__file__))
+from github_models import complete_json
+
 RANKED_PATH = "/tmp/jobs/jobs_ranked.json"
 EXTRA_SOURCES_PATH = "/tmp/jobs/extra_sources.json"
 
-MODELS_BASE_URL = "https://models.inference.ai.azure.com"
-MODEL = "gpt-4o-mini"
 MAX_TOKENS = 800
 
 # Only call AI and attempt a second scrape when fewer than this many relevant,
@@ -98,23 +99,12 @@ Respond with JSON only, no markdown:
 
 
 def call_github_models(prompt: str) -> dict | None:
-    token = os.environ.get("GITHUB_TOKEN")
-    if not token:
-        print("GITHUB_TOKEN not set — cannot call AI for source suggestions")
+    content = complete_json(
+        prompt, context="AI source suggestion", max_tokens=MAX_TOKENS, temperature=0.4
+    )
+    if content is None:
         return None
-
     try:
-        from openai import OpenAI
-
-        client = OpenAI(base_url=MODELS_BASE_URL, api_key=token)
-        response = client.chat.completions.create(
-            model=MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"},
-            temperature=0.4,
-            max_tokens=MAX_TOKENS,
-        )
-        content = response.choices[0].message.content or ""
         return json.loads(content)
     except Exception as exc:
         print(f"AI source suggestion failed: {exc}")

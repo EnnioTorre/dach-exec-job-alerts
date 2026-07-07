@@ -191,3 +191,53 @@ class TestFingerprint:
 
     def test_handles_missing_fields(self):
         assert rank_jobs.fingerprint({}) == "|"
+
+
+# ---------------------------------------------------------------------------
+# _source_domain_ok (lifted from main() during refactor)
+# ---------------------------------------------------------------------------
+
+class TestSourceDomainOk:
+    def test_stepstone_source_requires_stepstone_host(self):
+        ok = {"source_name": "stepstone_at_cto", "application_url": "https://www.stepstone.at/jobs/1"}
+        bad = {"source_name": "stepstone_at_cto", "application_url": "https://example.com/jobs/1"}
+        assert rank_jobs._source_domain_ok(ok) is True
+        assert rank_jobs._source_domain_ok(bad) is False
+
+    def test_linkedin_source_requires_linkedin_host(self):
+        ok = {"source_name": "linkedin_at_leader_0", "application_url": "https://at.linkedin.com/jobs/view/1"}
+        bad = {"source_name": "linkedin_at_leader_0", "application_url": "https://karriere.at/jobs/1"}
+        assert rank_jobs._source_domain_ok(ok) is True
+        assert rank_jobs._source_domain_ok(bad) is False
+
+    def test_karriere_prefix_requires_karriere_host(self):
+        ok = {"source_name": "karriere_at_cto", "application_url": "https://www.karriere.at/jobs/1"}
+        bad = {"source_name": "karriere_at_cto", "application_url": "https://example.com/jobs/1"}
+        assert rank_jobs._source_domain_ok(ok) is True
+        assert rank_jobs._source_domain_ok(bad) is False
+
+    def test_jobs_ch_exact_source(self):
+        ok = {"source_name": "jobs_ch", "application_url": "https://www.jobs.ch/en/vacancies/1"}
+        assert rank_jobs._source_domain_ok(ok) is True
+
+    def test_unknown_source_always_ok(self):
+        assert rank_jobs._source_domain_ok({"source_name": "arbeitnow_dach", "application_url": "https://x.io"}) is True
+
+
+# ---------------------------------------------------------------------------
+# _hard_reject_common (shared reject prefix for both relevance gates)
+# ---------------------------------------------------------------------------
+
+class TestHardRejectCommon:
+    def test_ai_reject_is_rejected(self):
+        assert rank_jobs._hard_reject_common("head of engineering", "https://x.io/jobs/1", "reject", "") is True
+
+    def test_search_url_quality_is_rejected(self):
+        assert rank_jobs._hard_reject_common("head of engineering", "https://x.io/jobs/1", "", "search") is True
+
+    def test_search_engine_host_is_rejected(self):
+        assert rank_jobs._hard_reject_common("cto", "https://www.google.com/search?q=x", "", "") is True
+
+    def test_clean_job_is_not_rejected(self):
+        assert rank_jobs._hard_reject_common("head of engineering", "https://acme.io/jobs/1", "", "") is False
+

@@ -17,11 +17,13 @@ This step is best-effort and safe to skip.
 import json
 import os
 import re
+import sys
 from datetime import date
 from pathlib import Path
 
-MODELS_BASE_URL = "https://models.inference.ai.azure.com"
-MODEL = "gpt-4o-mini"
+sys.path.insert(0, os.path.dirname(__file__))
+from github_models import complete_json
+
 # Response must hold one JSON object per input row. Keep this comfortably above
 # BATCH_SIZE * (~150 tokens/row) so the model never truncates mid-JSON.
 MAX_TOKENS = 4000
@@ -139,31 +141,16 @@ def _extract_json_updates(content: str) -> list[dict]:
 
 
 def call_models(prompt: str) -> dict | None:
-    token = os.getenv("GITHUB_TOKEN")
-    if not token:
-        print("GITHUB_TOKEN not set - skipping AI pre-rank enrichment")
+    content = complete_json(
+        prompt, context="AI pre-rank enrichment", max_tokens=MAX_TOKENS, temperature=0.2
+    )
+    if content is None:
         return None
-
-    try:
-        from openai import OpenAI
-
-        client = OpenAI(base_url=MODELS_BASE_URL, api_key=token)
-        resp = client.chat.completions.create(
-            model=MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"},
-            temperature=0.2,
-            max_tokens=MAX_TOKENS,
-        )
-        content = resp.choices[0].message.content or ""
-        updates = _extract_json_updates(content)
-        if not updates:
-            print("AI pre-rank enrichment: no parsable updates in response")
-            return None
-        return {"updates": updates}
-    except Exception as exc:
-        print(f"AI pre-rank enrichment failed: {exc}")
+    updates = _extract_json_updates(content)
+    if not updates:
+        print("AI pre-rank enrichment: no parsable updates in response")
         return None
+    return {"updates": updates}
 
 
 def main() -> None:

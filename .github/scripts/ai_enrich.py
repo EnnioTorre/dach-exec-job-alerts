@@ -18,12 +18,12 @@ import os
 import sys
 from datetime import date
 
+sys.path.insert(0, os.path.dirname(__file__))
+from github_models import complete_json
+
 RANKED_PATH = "/tmp/jobs/jobs_ranked.json"
 ENRICHED_PATH = "/tmp/jobs/jobs_enriched.json"
 
-# GitHub Models API endpoint (OpenAI-compatible, auth via GITHUB_TOKEN)
-MODELS_BASE_URL = "https://models.inference.ai.azure.com"
-MODEL = "gpt-4o-mini"
 MAX_TOKENS = 2000
 
 
@@ -76,23 +76,12 @@ Respond with JSON only, no markdown fences:
 
 
 def call_github_models(prompt: str) -> dict | None:
-    token = os.environ.get("GITHUB_TOKEN")
-    if not token:
-        print("GITHUB_TOKEN not set — skipping AI enrichment")
+    content = complete_json(
+        prompt, context="AI enrichment", max_tokens=MAX_TOKENS, temperature=0.3
+    )
+    if content is None:
         return None
-
     try:
-        from openai import OpenAI  # installed by workflow step
-
-        client = OpenAI(base_url=MODELS_BASE_URL, api_key=token)
-        response = client.chat.completions.create(
-            model=MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"},
-            temperature=0.3,
-            max_tokens=MAX_TOKENS,
-        )
-        content = response.choices[0].message.content or ""
         return json.loads(content)
     except Exception as exc:
         print(f"AI enrichment failed: {exc}")

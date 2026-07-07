@@ -35,6 +35,59 @@ EXTRA_SOURCES_PATH = "/tmp/jobs/extra_sources.json"
 RAW_PATH = "/tmp/jobs/jobs_raw.json"
 
 
+def _parser_for(url: str, name: str):
+    """
+    Pick an HTML parser for an AI-suggested URL: the exact PARSER_MAP entry if
+    present, else a domain heuristic. Returns None when nothing matches (caller
+    then falls back to a generic heading scan).
+    """
+    parser = PARSER_MAP.get(name)
+    if parser:
+        return parser
+    if "stepstone" in url:
+        return parse_stepstone
+    if "karriere" in url:
+        return parse_karriere_at
+    if "indeed" in url:
+        # Prefer RSS for Indeed even on HTML URLs (direct HTML often 403s in CI).
+        return parse_rss
+    if "linkedin" in url or "google" in url:
+        return parse_google_jobs
+    if "jobs.ch" in url:
+        return parse_jobs_ch
+    return None
+
+
+def _generic_heading_scan(html: str, url: str, name: str) -> list[dict]:
+    """Last-resort parser: treat h2/h3 headings with a nearby link as job rows."""
+    from bs4 import BeautifulSoup
+    from urllib.parse import urlparse
+
+    soup = BeautifulSoup(html, "html.parser")
+    jobs: list[dict] = []
+    for tag in soup.find_all(["h2", "h3"], string=True):
+        text = tag.get_text(strip=True)
+        if len(text) <= 5:
+            continue
+        link = tag.find_parent("a") or tag.find("a")
+        href = link["href"] if link and link.get("href") else ""
+        if href and not href.startswith("http"):
+            parsed = urlparse(url)
+            href = f"{parsed.scheme}://{parsed.netloc}{href}"
+        jobs.append({
+            "title": text,
+            "company": "",
+            "location": "",
+            "source_name": name,
+            "source_url": href,
+            "application_url": href,
+            "publish_date": "",
+            "salary_text": "",
+            "language_hint": _infer_language_hint(text),
+        })
+    return jobs
+
+
 def scrape_url(url: str, name: str) -> list[dict]:
     """Fetch one URL: try JSON-LD first, then a matching HTML parser, then generic."""
     html = fetch(url)
@@ -48,25 +101,7 @@ def scrape_url(url: str, name: str) -> list[dict]:
         print(f"  JSON-LD: {len(jobs)} jobs")
         return jobs
 
-    # Pick the closest HTML parser from the known map, or do a generic title scan
-    parser = PARSER_MAP.get(name)
-    if not parser:
-        # Heuristic: match common domain patterns
-        if "stepstone" in url:
-            parser = parse_stepstone
-        elif "karriere" in url:
-            parser = parse_karriere_at
-        elif "indeed" in url:
-            # Indeed: use RSS endpoint if we have an rss/feed URL, else html parse
-            if "/rss" in url or "rss." in url:
-                parser = parse_rss
-            else:
-                parser = parse_rss  # prefer RSS for Indeed even on HTML URLs
-        elif "linkedin" in url or "google" in url:
-            parser = parse_google_jobs
-        elif "jobs.ch" in url:
-            parser = parse_jobs_ch
-
+    parser = _parser_for(url, name)
     if parser:
         jobs = parser(html, name)
         print(f"  HTML parser ({parser.__name__}): {len(jobs)} jobs")
@@ -76,29 +111,7 @@ def scrape_url(url: str, name: str) -> list[dict]:
             for row in jobs[:8]:
                 row.update(enrich_from_company_page(row))
     else:
-        from bs4 import BeautifulSoup
-        soup = BeautifulSoup(html, "html.parser")
-        jobs = []
-        for tag in soup.find_all(["h2", "h3"], string=True):
-            text = tag.get_text(strip=True)
-            if len(text) > 5:
-                link = tag.find_parent("a") or tag.find("a")
-                href = link["href"] if link and link.get("href") else ""
-                if href and not href.startswith("http"):
-                    from urllib.parse import urlparse
-                    parsed = urlparse(url)
-                    href = f"{parsed.scheme}://{parsed.netloc}{href}"
-                jobs.append({
-                    "title": text,
-                    "company": "",
-                    "location": "",
-                    "source_name": name,
-                    "source_url": href,
-                    "application_url": href,
-                    "publish_date": "",
-                    "salary_text": "",
-                    "language_hint": _infer_language_hint(text),
-                })
+        jobs = _generic_heading_scan(html, url, name)
         print(f"  Generic heading scan: {len(jobs)} jobs")
 
     return [j for j in jobs if j.get("title")]
