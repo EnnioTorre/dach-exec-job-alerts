@@ -197,7 +197,12 @@ def main() -> None:
         j = jobs[idx]
 
         lang = (upd.get("language_hint") or "").strip().lower()
-        if lang in {"en", "de"}:
+        # Do NOT override the deterministic language_hint from the scraper: it
+        # is derived from the actual posting body (LinkedIn guest fetch) plus
+        # German gender markers / umlauts, whereas the model only sees the
+        # short title/company line and reliably mislabels German postings with
+        # English-looking titles as "en". Use the model only to fill a gap.
+        if lang in {"en", "de"} and not (j.get("language_hint") or "").strip():
             j["language_hint"] = lang
 
         loc = (upd.get("location") or "").strip()
