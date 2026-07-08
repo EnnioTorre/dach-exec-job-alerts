@@ -42,286 +42,117 @@ except Exception:  # pragma: no cover - optional dependency
 #     "search_proxy"— Bing/DDG search HTML→ parse_google_jobs()
 #     "json_api"    — JSON endpoint       → parse_json_jobs()
 #                    (used as bot-safe proxy for LinkedIn and closed career pages)
+#
+#   The concrete scrape targets — search keywords, locations, page offsets and
+#   query strings — live in an external JSON config so they can be tuned without
+#   editing this file. Only the SEARCH CONTENT is external; the type→parser
+#   wiring and name-prefix contracts (PARSER_MAP, _source_domain_ok, …) stay in
+#   Python. See .github/config/sources.json and _load_source_config() below.
 # ---------------------------------------------------------------------------
-SOURCES = [
-    # Stepstone direct pages often work better than search proxies when they load.
-    {"name": "stepstone_at_cto",  "type": "html",
-     "url": "https://www.stepstone.at/jobs/cto",                "region": "AT"},
-    {"name": "stepstone_at_hoe",  "type": "html",
-     "url": "https://www.stepstone.at/jobs/head-of-engineering", "region": "AT"},
-    {"name": "stepstone_de_hoe",  "type": "html",
-     "url": "https://www.stepstone.de/jobs/head-of-engineering", "region": "DE"},
 
-    # Karriere.at — Austria's primary job board, light protection
-    {"name": "karriere_at_cto",   "type": "html",
-     "url": "https://www.karriere.at/jobs/cto",                  "region": "AT"},
-    {"name": "karriere_at_hoe",   "type": "html",
-     "url": "https://www.karriere.at/jobs/head-of-engineering",  "region": "AT"},
-    {"name": "karriere_at_software", "type": "html",
-     "url": "https://www.karriere.at/jobs/software-engineering", "region": "AT"},
-    {"name": "karriere_at_platform", "type": "html",
-     "url": "https://www.karriere.at/jobs/platform-engineering", "region": "AT"},
-    {"name": "karriere_at_cloud", "type": "html",
-     "url": "https://www.karriere.at/jobs/cloud-engineering",    "region": "AT"},
+# Location of the external source registry. Overridable via env for tests /
+# alternate rota files.
+SOURCES_CONFIG_PATH = os.getenv(
+    "SCRAPER_SOURCES_CONFIG",
+    os.path.join(os.path.dirname(__file__), "..", "config", "sources.json"),
+)
 
-    # jobs.ch direct HTML is usually better than SERP snippets when accessible.
-    {"name": "jobs_ch",           "type": "html",
-     "url": "https://www.jobs.ch/en/vacancies/?term=head+of+engineering", "region": "CH"},
+_LINKEDIN_GUEST_SEARCH = (
+    "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?"
+)
+_GOOGLE_SEARCH = "https://www.google.com/search?"
 
-    # Deterministic public JSON feed fallback to preserve non-Karriere diversity.
-    {"name": "arbeitnow_dach",    "type": "json_api",
-     "url": "https://www.arbeitnow.com/api/job-board-api", "region": "DACH"},
+# Source types that must resolve to a parser / handler at scrape time. Used by
+# the config validator to fail fast on an unknown type.
+_KNOWN_SOURCE_TYPES = {"html", "rss", "google_proxy", "search_proxy", "json_api", "linkedin_api"}
 
-    # =========================================================================
-    # LinkedIn Direct API sources (public guest endpoint — no auth required)
-    #   /jobs-guest/jobs/api/seeMoreJobPostings/search returns structured job
-    #   card HTML that is server-side rendered and accessible without a session.
-    #   This replaces the fragile Google/Bing SERP proxy approach for LinkedIn.
-    # =========================================================================
-    # Austria — leadership roles (multiple pages to maximise volume)
-    {"name": "linkedin_at_leader_0", "type": "linkedin_api",
-     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
-         "keywords": "Engineering Manager OR CTO OR Head of Engineering OR VP Engineering OR Director of Engineering",
-         "location": "Austria", "start": "0",
-     }), "region": "AT"},
-    {"name": "linkedin_at_leader_1", "type": "linkedin_api",
-     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
-         "keywords": "Engineering Manager OR CTO OR Head of Engineering OR VP Engineering OR Director of Engineering",
-         "location": "Austria", "start": "10",
-     }), "region": "AT"},
-    {"name": "linkedin_at_leader_2", "type": "linkedin_api",
-     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
-         "keywords": "Engineering Manager OR CTO OR Head of Engineering OR VP Engineering OR Director of Engineering",
-         "location": "Austria", "start": "20",
-     }), "region": "AT"},
-    {"name": "linkedin_at_leader_3", "type": "linkedin_api",
-     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
-         "keywords": "Engineering Manager OR CTO OR Head of Engineering OR VP Engineering OR Director of Engineering",
-         "location": "Austria", "start": "30",
-     }), "region": "AT"},
-    # Austria — senior / principal tech roles
-    {"name": "linkedin_at_principal_0", "type": "linkedin_api",
-     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
-         "keywords": "Principal Engineer OR Staff Engineer OR Tech Lead OR Senior Engineer OR Platform Engineer",
-         "location": "Austria", "start": "0",
-     }), "region": "AT"},
-    {"name": "linkedin_at_principal_1", "type": "linkedin_api",
-     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
-         "keywords": "Principal Engineer OR Staff Engineer OR Tech Lead OR Senior Engineer OR Platform Engineer",
-         "location": "Austria", "start": "10",
-     }), "region": "AT"},
-    # Germany — leadership roles
-    {"name": "linkedin_de_leader_0", "type": "linkedin_api",
-     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
-         "keywords": "Engineering Manager OR CTO OR Head of Engineering OR VP Engineering OR Director of Engineering",
-         "location": "Germany", "start": "0",
-     }), "region": "DE"},
-    {"name": "linkedin_de_leader_1", "type": "linkedin_api",
-     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
-         "keywords": "Engineering Manager OR CTO OR Head of Engineering OR VP Engineering OR Director of Engineering",
-         "location": "Germany", "start": "10",
-     }), "region": "DE"},
-    {"name": "linkedin_de_leader_2", "type": "linkedin_api",
-     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
-         "keywords": "Engineering Manager OR CTO OR Head of Engineering OR VP Engineering OR Director of Engineering",
-         "location": "Germany", "start": "20",
-     }), "region": "DE"},
-    # Germany — senior tech roles
-    {"name": "linkedin_de_principal_0", "type": "linkedin_api",
-     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
-         "keywords": "Principal Engineer OR Staff Engineer OR Tech Lead OR Senior Software Engineer",
-         "location": "Germany", "start": "0",
-     }), "region": "DE"},
-    {"name": "linkedin_de_principal_1", "type": "linkedin_api",
-     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
-         "keywords": "Principal Engineer OR Staff Engineer OR Tech Lead OR Senior Software Engineer",
-         "location": "Germany", "start": "10",
-     }), "region": "DE"},
-    # Switzerland
-    {"name": "linkedin_ch_leader_0", "type": "linkedin_api",
-     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
-         "keywords": "Engineering Manager OR CTO OR Head of Engineering OR VP Engineering OR Director of Engineering",
-         "location": "Switzerland", "start": "0",
-     }), "region": "CH"},
-    {"name": "linkedin_ch_leader_1", "type": "linkedin_api",
-     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
-         "keywords": "Engineering Manager OR CTO OR Head of Engineering OR VP Engineering",
-         "location": "Switzerland", "start": "10",
-     }), "region": "CH"},
-    # DACH-wide CTO / VP sweeps
-    {"name": "linkedin_dach_cto_0", "type": "linkedin_api",
-     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
-         "keywords": "CTO OR Chief Technology Officer OR VP Engineering OR VP Technology",
-         "location": "DACH", "start": "0",
-     }), "region": "DACH"},
-    {"name": "linkedin_dach_dir_0", "type": "linkedin_api",
-     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
-         "keywords": "Director of Engineering OR Director of Technology OR Engineering Director",
-         "location": "DACH", "start": "0",
-     }), "region": "DACH"},
-    # Vienna and Berlin city-level sweeps for denser local markets
-    {"name": "linkedin_vienna_0", "type": "linkedin_api",
-     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
-         "keywords": "Engineering Manager OR Head of Engineering OR CTO OR Tech Lead",
-         "location": "Vienna, Austria", "start": "0",
-     }), "region": "AT"},
-    {"name": "linkedin_berlin_0", "type": "linkedin_api",
-     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
-         "keywords": "Engineering Manager OR Head of Engineering OR CTO OR VP Engineering",
-         "location": "Berlin, Germany", "start": "0",
-     }), "region": "DE"},
 
-    # -------------------------------------------------------------------------
-    # LinkedIn guest API — expanded coverage (probe-validated 2026-07).
-    #   The endpoint returns a fixed 10 cards/request; deeper `start` offsets
-    #   keep yielding ~9 new unique jobs per page up to start>=90, and
-    #   city-level sweeps are highly additive to the country sweeps (LinkedIn
-    #   location matching is not hierarchical). So we deepen pagination and add
-    #   productive city sweeps rather than relying on capped SERP proxies.
-    # -------------------------------------------------------------------------
-    # Austria — deepen leadership pagination
-    {"name": "linkedin_at_leader_4", "type": "linkedin_api",
-     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
-         "keywords": "Engineering Manager OR CTO OR Head of Engineering OR VP Engineering OR Director of Engineering",
-         "location": "Austria", "start": "40",
-     }), "region": "AT"},
-    # Germany — deepen leadership pagination
-    {"name": "linkedin_de_leader_3", "type": "linkedin_api",
-     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
-         "keywords": "Engineering Manager OR CTO OR Head of Engineering OR VP Engineering OR Director of Engineering",
-         "location": "Germany", "start": "30",
-     }), "region": "DE"},
-    {"name": "linkedin_de_leader_4", "type": "linkedin_api",
-     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
-         "keywords": "Engineering Manager OR CTO OR Head of Engineering OR VP Engineering OR Director of Engineering",
-         "location": "Germany", "start": "40",
-     }), "region": "DE"},
-    # Switzerland — deepen leadership + add senior/principal group
-    {"name": "linkedin_ch_leader_2", "type": "linkedin_api",
-     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
-         "keywords": "Engineering Manager OR CTO OR Head of Engineering OR VP Engineering OR Director of Engineering",
-         "location": "Switzerland", "start": "20",
-     }), "region": "CH"},
-    {"name": "linkedin_ch_principal_0", "type": "linkedin_api",
-     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
-         "keywords": "Principal Engineer OR Staff Engineer OR Tech Lead OR Senior Software Engineer OR Platform Engineer",
-         "location": "Switzerland", "start": "0",
-     }), "region": "CH"},
-    # Cities — highly additive to country sweeps (probe: Munich +39, Berlin +33, Vienna +28)
-    {"name": "linkedin_vienna_1", "type": "linkedin_api",
-     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
-         "keywords": "Engineering Manager OR Head of Engineering OR CTO OR VP Engineering OR Tech Lead",
-         "location": "Vienna, Austria", "start": "10",
-     }), "region": "AT"},
-    {"name": "linkedin_graz_0", "type": "linkedin_api",
-     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
-         "keywords": "Engineering Manager OR Head of Engineering OR CTO OR Tech Lead OR Software Engineer",
-         "location": "Graz, Austria", "start": "0",
-     }), "region": "AT"},
-    {"name": "linkedin_berlin_1", "type": "linkedin_api",
-     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
-         "keywords": "Engineering Manager OR Head of Engineering OR CTO OR VP Engineering OR Tech Lead",
-         "location": "Berlin, Germany", "start": "10",
-     }), "region": "DE"},
-    {"name": "linkedin_munich_0", "type": "linkedin_api",
-     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
-         "keywords": "Engineering Manager OR Head of Engineering OR CTO OR VP Engineering OR Tech Lead",
-         "location": "Munich, Germany", "start": "0",
-     }), "region": "DE"},
-    {"name": "linkedin_munich_1", "type": "linkedin_api",
-     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
-         "keywords": "Engineering Manager OR Head of Engineering OR CTO OR VP Engineering OR Tech Lead",
-         "location": "Munich, Germany", "start": "10",
-     }), "region": "DE"},
-    {"name": "linkedin_hamburg_0", "type": "linkedin_api",
-     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
-         "keywords": "Engineering Manager OR Head of Engineering OR CTO OR VP Engineering OR Tech Lead",
-         "location": "Hamburg, Germany", "start": "0",
-     }), "region": "DE"},
-    {"name": "linkedin_frankfurt_0", "type": "linkedin_api",
-     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
-         "keywords": "Engineering Manager OR Head of Engineering OR CTO OR VP Engineering OR Tech Lead",
-         "location": "Frankfurt, Germany", "start": "0",
-     }), "region": "DE"},
-    {"name": "linkedin_zurich_0", "type": "linkedin_api",
-     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
-         "keywords": "Engineering Manager OR Head of Engineering OR CTO OR VP Engineering OR Tech Lead",
-         "location": "Zurich, Switzerland", "start": "0",
-     }), "region": "CH"},
-    # South Tyrol (Bolzano/Bozen) — German-speaking Italian province adjacent to
-    # Austria; a relevant, mostly German-language market missing from the rota.
-    {"name": "linkedin_bolzano_0", "type": "linkedin_api",
-     "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?" + urlencode({
-         "keywords": "Engineering Manager OR Head of Engineering OR CTO OR VP Engineering OR Tech Lead OR Software Engineer",
-         "location": "Bolzano, Italy", "start": "0",
-     }), "region": "IT"},
+def _build_source_url(entry: dict, keyword_sets: dict) -> str:
+    """
+    Build a source's fetch URL from its config entry.
 
-    # =========================================================================
-    # SERP proxies via SearXNG provider (google_proxy type only).
-    #   Probe-validated 2026-07: single-site queries reliably yield ~20 job
-    #   URLs each. SearXNG/Google throttles after ~8-9 rapid queries per run,
-    #   so this set is intentionally lean (9) and the provider spaces calls.
-    #   Multi-site "OR site:" queries and Xing yielded poorly and were dropped.
-    #   All Bing/DDG/Ecosia (search_proxy) sources were removed — they returned
-    #   zero on the runner and are skipped by SCRAPER_SKIP_SEARCH_PROXIES.
-    # =========================================================================
-    {"name": "google_linkedin_at", "type": "google_proxy",
-     "url": "https://www.google.com/search?" + urlencode({
-         "q": 'site:linkedin.com/jobs/view ("Head of Engineering" OR "VP Engineering" OR CTO) Austria',
-         "num": "20",
-     }), "region": "AT"},
-    {"name": "google_linkedin_de", "type": "google_proxy",
-     "url": "https://www.google.com/search?" + urlencode({
-         "q": 'site:linkedin.com/jobs/view ("CTO" OR "VP Engineering" OR "Director of Engineering") Germany',
-         "num": "20",
-     }), "region": "DE"},
-    {"name": "google_linkedin_ch", "type": "google_proxy",
-     "url": "https://www.google.com/search?" + urlencode({
-         "q": 'site:linkedin.com/jobs/view ("Engineering Manager" OR "Head of Engineering" OR CTO) Switzerland',
-         "num": "20",
-     }), "region": "CH"},
-    {"name": "google_linkedin_principal", "type": "google_proxy",
-     "url": "https://www.google.com/search?" + urlencode({
-         "q": 'site:linkedin.com/jobs/view ("Principal Engineer" OR "Staff Engineer" OR "Tech Lead") Germany OR Austria',
-         "num": "20",
-     }), "region": "DACH"},
-    {"name": "google_stepstone_at", "type": "google_proxy",
-     "url": "https://www.google.com/search?" + urlencode({
-         "q": 'site:stepstone.at/jobs ("CTO" OR "Head of Engineering" OR "VP Engineering")',
-         "num": "20",
-     }), "region": "AT"},
-    {"name": "google_stepstone_de", "type": "google_proxy",
-     "url": "https://www.google.com/search?" + urlencode({
-         "q": 'site:stepstone.de/jobs ("CTO" OR "Head of Engineering" OR "Engineering Manager")',
-         "num": "20",
-     }), "region": "DE"},
-    {"name": "google_jobs_ch", "type": "google_proxy",
-     "url": "https://www.google.com/search?" + urlencode({
-         "q": 'site:jobs.ch ("Head of Engineering" OR "Engineering Manager" OR CTO)',
-         "num": "20",
-     }), "region": "CH"},
-    {"name": "google_indeed_at", "type": "google_proxy",
-     "url": "https://www.google.com/search?" + urlencode({
-         "q": 'site:indeed.com/viewjob OR site:indeed.de/viewjob "Engineering Manager" Austria',
-         "num": "20",
-     }), "region": "AT"},
-    {"name": "google_jobs_bolzano", "type": "google_proxy",
-     "url": "https://www.google.com/search?" + urlencode({
-         "q": 'site:linkedin.com/jobs/view ("Head of Engineering" OR "Engineering Manager" OR CTO OR "Tech Lead") (Bolzano OR Bozen OR "South Tyrol" OR Südtirol)',
-         "num": "20",
-     }), "region": "IT"},
-]
+    An explicit ``url`` always wins. Otherwise the URL is templated from the
+    entry's type (matching the historical hand-written URLs byte-for-byte):
+      - linkedin_api : keywords (literal or via keyword_set) + location + start
+      - google_proxy : query + num
+    """
+    if entry.get("url"):
+        return entry["url"]
 
-# Alternate URLs used when a source fetch fails or repeatedly returns no content.
-SOURCE_URL_FALLBACKS: dict[str, list[str]] = {
-    # HTML source alternates only. SERP sources go through the SearXNG provider
-    # and need no direct-fetch fallbacks in provider_only mode. All Bing/DDG/
-    # Ecosia proxy fallbacks were removed with their (zero-yield) sources.
-    "jobs_ch": [
-        "https://www.jobs.ch/en/vacancies/?term=head+of+engineering",
-        "https://www.jobs.ch/en/vacancies/?term=engineering+manager",
-    ],
-}
+    stype = entry.get("type")
+    if stype == "linkedin_api":
+        keywords = entry.get("keywords")
+        if not keywords:
+            ks = entry.get("keyword_set")
+            if ks not in keyword_sets:
+                raise ValueError(
+                    f"source {entry.get('name')!r} references unknown keyword_set {ks!r}"
+                )
+            keywords = keyword_sets[ks]
+        return _LINKEDIN_GUEST_SEARCH + urlencode({
+            "keywords": keywords,
+            "location": entry.get("location", ""),
+            "start": str(entry.get("start", 0)),
+        })
+
+    if stype in {"google_proxy", "search_proxy"}:
+        query = entry.get("query")
+        if not query:
+            raise ValueError(f"source {entry.get('name')!r} ({stype}) is missing 'query'")
+        return _GOOGLE_SEARCH + urlencode({
+            "q": query,
+            "num": str(entry.get("num", 20)),
+        })
+
+    raise ValueError(
+        f"source {entry.get('name')!r} of type {stype!r} needs an explicit 'url'"
+    )
+
+
+def _load_source_config(path: str = SOURCES_CONFIG_PATH) -> tuple[list[dict], dict[str, list[str]]]:
+    """
+    Load and validate the external source registry.
+
+    Returns (sources, fallbacks) where each source is a fully-resolved dict with
+    ``name``/``type``/``url``/``region`` (the shape the rest of this module
+    expects). Raises ValueError with a clear message on any malformed entry so
+    the workflow fails fast rather than silently scraping fewer sources.
+    """
+    with open(path, encoding="utf-8") as f:
+        cfg = json.load(f)
+
+    keyword_sets = cfg.get("keyword_sets", {})
+    raw_sources = cfg.get("sources", [])
+    if not isinstance(raw_sources, list) or not raw_sources:
+        raise ValueError(f"{path}: 'sources' must be a non-empty list")
+
+    seen: set[str] = set()
+    sources: list[dict] = []
+    for entry in raw_sources:
+        name = entry.get("name")
+        stype = entry.get("type")
+        if not name:
+            raise ValueError(f"{path}: a source entry is missing 'name'")
+        if name in seen:
+            raise ValueError(f"{path}: duplicate source name {name!r}")
+        seen.add(name)
+        if stype not in _KNOWN_SOURCE_TYPES:
+            raise ValueError(f"{path}: source {name!r} has unknown type {stype!r}")
+        sources.append({
+            "name": name,
+            "type": stype,
+            "region": entry.get("region"),
+            "url": _build_source_url(entry, keyword_sets),
+        })
+
+    fallbacks = cfg.get("fallbacks", {})
+    if not isinstance(fallbacks, dict):
+        raise ValueError(f"{path}: 'fallbacks' must be an object")
+
+    return sources, fallbacks
+
+
+SOURCES, SOURCE_URL_FALLBACKS = _load_source_config()
 
 # Rotate through a small pool of realistic browser UAs to reduce fingerprinting.
 _USER_AGENTS = [
