@@ -96,6 +96,44 @@ EXCLUDE_KEYWORDS = [
     "cnc",
 ]
 
+# Non-IT engineering disciplines / industries. A title mentioning any of these
+# is a hardware/mechanical/industrial role, not a software/IT role, so it is
+# rejected outright. (These complement EXCLUDE_KEYWORDS, which targets non-
+# engineering functions like sales/quality.) Matched on the TITLE only, with
+# word boundaries, so a software role at an industrial-sounding company is not
+# wrongly dropped.
+NON_IT_EXCLUDE_KEYWORDS = [
+    "manufacturing",
+    "mechanical",
+    "electrical",
+    "electronics",
+    "electronic",
+    "chemical",
+    "telecom",
+    "telecommunications",
+    "automotive",
+    "aerospace",
+    "construction",
+    "civil",
+    "industrial",
+    "plant",
+    "factory",
+    "production",
+    "hardware",
+    # German equivalents
+    "maschinenbau",
+    "sondermaschinenbau",
+    "mechatronik",
+    "elektrotechnik",
+    "elektronik",
+    "fertigung",
+    "produktion",
+    "luftfahrt",
+    "chemie",
+    "automobil",
+    "anlagenbau",
+]
+
 MANAGEMENT_KEYWORDS = [
     "head",
     "manager",
@@ -177,6 +215,68 @@ TECH_IC_KEYWORDS = [
     "infrastructure",
 ]
 
+# Explicit software/IT markers. A role only counts as IT when one of these
+# appears in the title or company — this is what separates a real software
+# "Head of Engineering" from a mechanical/aerospace/industrial one (whose
+# title is textually identical). Matched with word boundaries.
+IT_SIGNAL_KEYWORDS = [
+    "software",
+    "softwareentwickler",
+    "cloud",
+    "platform",
+    "plattform",
+    "devops",
+    "devsecops",
+    "sre",
+    "site reliability",
+    "infrastructure",
+    "backend",
+    "frontend",
+    "fullstack",
+    "full stack",
+    "data",
+    "digital",
+    "digitalis",
+    "digitalisierung",
+    "cyber",
+    "security",
+    "web",
+    "saas",
+    "kubernetes",
+    "developer",
+    "entwickler",
+    "it",
+    "it services",
+    "information technology",
+    "machine learning",
+    "artificial intelligence",
+    "iot",
+    "tech lead",
+    "technology",
+    "cto",
+    "linux",
+    "python",
+    "java",
+]
+
+# Generic (discipline-agnostic) engineering terms. On their own these do NOT
+# prove a role is IT — they gate down to a middling relevance score unless an
+# IT_SIGNAL keyword is also present.
+GENERIC_ENGINEERING_KEYWORDS = [
+    "engineer",
+    "engineering",
+    "entwicklung",
+    "technical",
+    "technik",
+]
+
+
+def _has_it_signal(job: dict) -> bool:
+    """True when the title or company carries an explicit software/IT signal."""
+    title = (job.get("title") or "").lower()
+    company = (job.get("company") or "").lower()
+    return _contains_any(title, IT_SIGNAL_KEYWORDS) or _contains_any(company, IT_SIGNAL_KEYWORDS)
+
 
 def _hard_reject_common(title: str, url: str, ai_rel: str, ai_url_quality: str) -> bool:
     """
@@ -228,6 +328,10 @@ def is_relevant(job: dict) -> bool:
     if any(kw in title for kw in EXCLUDE_KEYWORDS):
         return False
 
+    # Reject non-IT engineering disciplines (mechanical/electrical/industrial/…).
+    if _contains_any(title, NON_IT_EXCLUDE_KEYWORDS):
+        return False
+
     cto_like = bool(re.search(r"\bcto\b", title)) or "chief technology officer" in title
     has_role = any(kw in title for kw in ROLE_KEYWORDS)
     has_domain = any(kw in title for kw in DOMAIN_KEYWORDS)
@@ -246,7 +350,14 @@ def is_relevant(job: dict) -> bool:
     if not has_job_url_hint and not (has_role and has_domain):
         return False
 
-    return cto_like or (has_role and has_domain) or has_tech_ic_role
+    if not (cto_like or (has_role and has_domain) or has_tech_ic_role):
+        return False
+
+    # Restrict to genuinely IT/software roles: a generic "engineering" title
+    # (which in DACH is frequently mechanical/electrical/industrial) only
+    # qualifies when the title or company carries an explicit software/IT
+    # signal. CTO and clear tech-IC titles already contain such a signal.
+    return _has_it_signal(job)
 
 
 def is_relevant_relaxed(job: dict) -> bool:
@@ -263,6 +374,8 @@ def is_relevant_relaxed(job: dict) -> bool:
         return False
     if any(kw in title for kw in EXCLUDE_KEYWORDS):
         return False
+    if _contains_any(title, NON_IT_EXCLUDE_KEYWORDS):
+        return False
 
     # Allow strong leadership or clear tech-IC terms even without full strict role+domain pair.
     has_mgmt = _contains_any(title, MANAGEMENT_KEYWORDS)
@@ -270,7 +383,11 @@ def is_relevant_relaxed(job: dict) -> bool:
     has_tech_ic = _contains_any(title, TECH_IC_KEYWORDS)
     cto_like = bool(re.search(r"\bcto\b", title)) or "chief technology officer" in title
 
-    return cto_like or (has_mgmt and has_domain) or has_tech_ic
+    if not (cto_like or (has_mgmt and has_domain) or has_tech_ic):
+        return False
+
+    # Same IT-only restriction as the strict gate.
+    return _has_it_signal(job)
 
 
 # ---------------------------------------------------------------------------
@@ -392,41 +509,35 @@ def language_score(language_hint: str, company: str) -> float:
 
 def it_management_focus_score(title: str) -> float:
     """
-    Score how closely a title matches management focus.
+    Score how closely a title matches IT management focus.
 
-    5.0: clear management leadership role
-    3.0: management title with strong engineering/domain signal
-    2.0: engineer/devops IC role
+    5.0: IT/software management leadership (mgmt + explicit software/IT signal)
+    3.0: management + generic engineering, or an IT individual-contributor role
+    2.0: generic engineering IC (no explicit IT signal)
+    1.5: management title without any engineering/IT signal
     1.0: explicitly non-IT indicators
     """
     t = title.lower()
 
-    if _contains_any(t, EXCLUDE_KEYWORDS):
+    if _contains_any(t, EXCLUDE_KEYWORDS) or _contains_any(t, NON_IT_EXCLUDE_KEYWORDS):
         return 1.0
 
-    has_engineering = _contains_any(t, [
-        "engineer",
-        "software engineer",
-        "platform engineer",
-        "cloud engineer",
-        "devops engineer",
-        "site reliability engineer",
-        "sre engineer",
-        "backend engineer",
-        "infrastructure engineer",
-        "softwareentwickler",
-        "entwicklungsingenieur",
-    ]) or _contains_any(t, DOMAIN_KEYWORDS)
+    has_it_signal = _contains_any(t, IT_SIGNAL_KEYWORDS)
+    has_generic_eng = _contains_any(t, GENERIC_ENGINEERING_KEYWORDS)
     has_management = _contains_any(t, MANAGEMENT_KEYWORDS)
 
-    # Prefer management and leadership roles over IC engineering roles.
-    if has_management and has_engineering:
+    # Top score requires genuine IT/software leadership.
+    if has_management and has_it_signal:
         return 5.0
-
+    # An IT individual contributor, or generic engineering leadership.
+    if has_it_signal:
+        return 3.0
+    if has_management and has_generic_eng:
+        return 3.0
+    if has_generic_eng:
+        return 2.0
     if has_management:
         return 1.5
-    if has_engineering:
-        return 2.0
     return 1.0
 
 

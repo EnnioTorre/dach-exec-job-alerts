@@ -23,8 +23,24 @@ import rank_jobs
 
 class TestIsRelevant:
     def test_accepts_clear_leadership_role_with_job_url(self):
-        job = {"title": "Head of Engineering", "application_url": "https://acme.com/jobs/123"}
+        job = {"title": "Head of Software Engineering", "application_url": "https://acme.com/jobs/123"}
         assert rank_jobs.is_relevant(job) is True
+
+    def test_rejects_generic_engineering_without_it_signal(self):
+        # Generic "Head of Engineering" at a non-IT-named company could be a
+        # mechanical/aerospace role — reject unless an IT signal is present.
+        job = {"title": "Head of Engineering", "application_url": "https://acme.com/jobs/123", "company": "ENPULSION"}
+        assert rank_jobs.is_relevant(job) is False
+
+    def test_accepts_generic_engineering_when_company_has_it_signal(self):
+        job = {"title": "Head of Engineering", "application_url": "https://acme.com/jobs/123", "company": "Acme Software GmbH"}
+        assert rank_jobs.is_relevant(job) is True
+
+    def test_rejects_non_it_engineering_discipline(self):
+        for title in ("Head of Civil Engineering", "Head of Electrical Engineering",
+                      "Head of Manufacturing Engineering", "Head of Production"):
+            job = {"title": title, "application_url": "https://acme.com/jobs/123", "company": "Acme Software"}
+            assert rank_jobs.is_relevant(job) is False, title
 
     def test_accepts_cto_role(self):
         job = {"title": "Chief Technology Officer (CTO)", "application_url": "https://acme.com/careers/cto-1"}
@@ -55,7 +71,7 @@ class TestIsRelevant:
         assert rank_jobs.is_relevant(job) is False
 
     def test_accepts_karriere_concrete_job_with_numeric_id(self):
-        job = {"title": "Head of Engineering", "application_url": "https://www.karriere.at/jobs/7821533"}
+        job = {"title": "Head of Software Engineering", "application_url": "https://www.karriere.at/jobs/7821533"}
         assert rank_jobs.is_relevant(job) is True
 
     def test_missing_title_and_url_is_not_relevant(self):
@@ -70,6 +86,32 @@ class TestIsRelevantRelaxed:
     def test_relaxed_still_rejects_excluded_keyword(self):
         job = {"title": "Head of Sales Engineering", "source_url": "https://acme.io/jobs/1"}
         assert rank_jobs.is_relevant_relaxed(job) is False
+
+    def test_relaxed_rejects_non_it_engineering_discipline(self):
+        job = {"title": "Head of Mechanical Engineering", "source_url": "https://acme.io/jobs/1", "company": "Acme Software"}
+        assert rank_jobs.is_relevant_relaxed(job) is False
+
+    def test_relaxed_requires_it_signal(self):
+        job = {"title": "Director of Engineering", "source_url": "https://acme.io/x", "company": "Rosewood Hotel"}
+        assert rank_jobs.is_relevant_relaxed(job) is False
+
+
+# ---------------------------------------------------------------------------
+# _has_it_signal
+# ---------------------------------------------------------------------------
+
+class TestHasItSignal:
+    def test_signal_in_title(self):
+        assert rank_jobs._has_it_signal({"title": "Head of Cloud Operations", "company": "Acme"}) is True
+
+    def test_signal_in_company(self):
+        assert rank_jobs._has_it_signal({"title": "Head of Engineering", "company": "efsta IT Services GmbH"}) is True
+
+    def test_cto_counts_as_signal(self):
+        assert rank_jobs._has_it_signal({"title": "Chief Technology Officer (CTO)", "company": "Acme"}) is True
+
+    def test_no_signal(self):
+        assert rank_jobs._has_it_signal({"title": "Head of Engineering", "company": "ENPULSION"}) is False
 
 
 # ---------------------------------------------------------------------------
@@ -140,11 +182,22 @@ class TestItManagementFocusScore:
     def test_management_only_is_low(self):
         assert rank_jobs.it_management_focus_score("Head of Marketing") == 1.5
 
-    def test_individual_contributor_engineer(self):
-        assert rank_jobs.it_management_focus_score("Cloud Engineer") == 2.0
+    def test_it_individual_contributor_scores_mid(self):
+        # Cloud Engineer carries an IT signal → 3.0 (up from the old generic 2.0).
+        assert rank_jobs.it_management_focus_score("Cloud Engineer") == 3.0
+
+    def test_generic_engineering_ic_without_it_signal(self):
+        assert rank_jobs.it_management_focus_score("Development Engineer") == 2.0
+
+    def test_generic_engineering_management_without_it_signal_is_demoted(self):
+        # Generic "Head of Engineering" (no software/cloud/etc.) is demoted from 5.0.
+        assert rank_jobs.it_management_focus_score("Head of Engineering") == 3.0
 
     def test_excluded_keyword_forces_min(self):
         assert rank_jobs.it_management_focus_score("Sales Engineer") == 1.0
+
+    def test_non_it_industry_forces_min(self):
+        assert rank_jobs.it_management_focus_score("Head of Electrical Engineering") == 1.0
 
     def test_non_it_title(self):
         assert rank_jobs.it_management_focus_score("Office Assistant") == 1.0
@@ -156,8 +209,8 @@ class TestItManagementFocusScore:
 
 class TestScoreJob:
     def test_perfect_job_scores_five(self):
-        # Vienna (5.0) * .35 + en (5.0) * .35 + Head of Engineering (5.0) * .30 = 5.0
-        job = {"title": "Head of Engineering", "location": "Wien", "language_hint": "en", "company": "Acme"}
+        # Vienna (5.0)*.35 + en (5.0)*.35 + Head of Software Engineering (5.0)*.30 = 5.0
+        job = {"title": "Head of Software Engineering", "location": "Wien", "language_hint": "en", "company": "Acme"}
         assert rank_jobs.score_job(job) == 5.0
 
     def test_score_is_clamped_to_minimum_one(self):
