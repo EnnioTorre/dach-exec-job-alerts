@@ -2,7 +2,12 @@ name: dach-exec-job-alerts
 
 on:
   schedule:
-    - cron: "15 6 * * *"
+    # 04:07 UTC ≈ 06:07 CEST (summer, UTC+2). GitHub cron is UTC-only and
+    # cannot follow DST, so in winter (CET, UTC+1) this lands at 05:07 local.
+    # An odd minute (:07) is used instead of a round slot like :00/:15 because
+    # top-of-hour slots are the most contended and suffer the longest
+    # scheduling delays; GitHub still does not guarantee an exact start time.
+    - cron: "7 4 * * *"
   workflow_dispatch:
 
 permissions:
