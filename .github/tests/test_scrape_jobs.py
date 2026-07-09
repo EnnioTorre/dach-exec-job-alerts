@@ -14,6 +14,8 @@ Network is never hit: the one function that would fetch a page
 (`_german_market_lang_hint`) is exercised with monkeypatched enrichment.
 """
 
+import json
+
 import pytest
 
 import scrape_jobs
@@ -408,4 +410,52 @@ class TestParseSourceContent:
         monkeypatch.setattr(scrape_jobs, "extract_jsonld_jobs", lambda c: [])
         monkeypatch.setattr(scrape_jobs, "PARSER_MAP", {})
         assert scrape_jobs._parse_source_content("<html/>", "unknown_src", "html") == []
+
+
+# ---------------------------------------------------------------------------
+# parse_json_jobs — language detection uses the posting body, not just title
+# ---------------------------------------------------------------------------
+
+class TestParseJsonJobsLanguage:
+    def _feed(self, title, description):
+        return json.dumps({"data": [{
+            "title": title,
+            "company_name": "Wohnio GmbH",
+            "location": "Vienna, Austria",
+            "url": "https://www.arbeitnow.com/jobs/1",
+            "description": description,
+            "created_at": "2026-07-09",
+        }]})
+
+    def test_english_title_german_body_is_de(self):
+        # Regression (issue #43): English-looking title over a German body must
+        # be classified 'de', not 'en'.
+        feed = self._feed(
+            "Head of Software & IoT - GreenTech Scale Up",
+            "<p>Deine Aufgaben: Du leitest die Entwicklung unseres Teams und "
+            "verantwortest die technische Ausrichtung. Wir freuen uns auf deine "
+            "Bewerbung. Sehr gute Deutschkenntnisse erforderlich.</p>",
+        )
+        jobs = scrape_jobs.parse_json_jobs(feed, "arbeitnow_dach")
+        assert len(jobs) == 1
+        assert jobs[0]["language_hint"] == "de"
+
+    def test_english_title_english_body_is_en(self):
+        feed = self._feed(
+            "Head of Software & IoT - GreenTech Scale Up",
+            "<p>Your mission: you lead the development of our team and own the "
+            "technical direction. We look forward to your application.</p>",
+        )
+        jobs = scrape_jobs.parse_json_jobs(feed, "arbeitnow_dach")
+        assert jobs[0]["language_hint"] == "en"
+
+    def test_missing_description_falls_back_to_title(self):
+        feed = json.dumps({"data": [{
+            "title": "Geschäftsführer Entwicklung (m/w/d)",
+            "company_name": "X",
+            "location": "Wien",
+            "url": "https://www.arbeitnow.com/jobs/2",
+        }]})
+        jobs = scrape_jobs.parse_json_jobs(feed, "arbeitnow_dach")
+        assert jobs[0]["language_hint"] == "de"
 

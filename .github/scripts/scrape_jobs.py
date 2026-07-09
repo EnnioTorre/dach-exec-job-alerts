@@ -962,6 +962,15 @@ def parse_json_jobs(json_text: str, source_name: str) -> list[dict]:
         created = item.get("created_at") or item.get("published_at") or ""
         publish_date = str(created).strip() if created is not None else ""
 
+        # Detect language from the posting body, not just the title: DACH feeds
+        # (e.g. arbeitnow) routinely carry an English-looking title over a fully
+        # German description, so a title-only guess mislabels them as 'en'. The
+        # description is HTML — strip tags before scoring, matching
+        # normalize_jsonld / parse_rss.
+        desc = item.get("description") or ""
+        desc_text = re.sub(r"<[^>]+>", " ", desc) if desc else ""
+        lang_text = f"{title} {desc_text}".strip()[:2500]
+
         jobs.append({
             "title": title,
             "company": company,
@@ -971,7 +980,7 @@ def parse_json_jobs(json_text: str, source_name: str) -> list[dict]:
             "application_url": link,
             "publish_date": publish_date,
             "salary_text": "",
-            "language_hint": _infer_language_hint(title),
+            "language_hint": _infer_language_hint(lang_text),
         })
 
     return jobs
