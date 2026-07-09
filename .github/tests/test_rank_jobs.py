@@ -77,10 +77,34 @@ class TestIsRelevant:
     def test_missing_title_and_url_is_not_relevant(self):
         assert rank_jobs.is_relevant({}) is False
 
+    def test_strict_excludes_individual_contributor_roles(self):
+        # IC titles must NOT pass the strict gate — they only enter via the
+        # relaxed fallback. The digest targets management/leadership roles.
+        for title in ("Senior Software Engineer", "Platform Engineer",
+                      "Staff Software Engineer", "Cloud Engineer",
+                      "Senior Full Stack Developer"):
+            job = {"title": title, "application_url": "https://acme.com/jobs/123",
+                   "company": "Acme Software GmbH"}
+            assert rank_jobs.is_relevant(job) is False, title
+
+    def test_strict_accepts_management_it_roles(self):
+        for title in ("Engineering Manager", "Director of Software Engineering",
+                      "VP of Engineering", "Head of Platform"):
+            job = {"title": title, "application_url": "https://acme.com/jobs/123",
+                   "company": "Acme Software GmbH"}
+            assert rank_jobs.is_relevant(job) is True, title
+
 
 class TestIsRelevantRelaxed:
     def test_relaxed_accepts_mgmt_plus_domain_without_url_hint(self):
         job = {"title": "Director of Cloud", "source_url": "https://acme.io/x"}
+        assert rank_jobs.is_relevant_relaxed(job) is True
+
+    def test_relaxed_accepts_individual_contributor_as_fallback(self):
+        # ICs excluded from the strict gate are still allowed in the relaxed
+        # fallback (used to fill the list when leadership roles are too few).
+        job = {"title": "Senior Software Engineer", "source_url": "https://acme.io/jobs/1",
+               "company": "Acme Software GmbH"}
         assert rank_jobs.is_relevant_relaxed(job) is True
 
     def test_relaxed_still_rejects_excluded_keyword(self):
@@ -182,16 +206,32 @@ class TestItManagementFocusScore:
     def test_management_only_is_low(self):
         assert rank_jobs.it_management_focus_score("Head of Marketing") == 1.5
 
-    def test_it_individual_contributor_scores_mid(self):
-        # Cloud Engineer carries an IT signal → 3.0 (up from the old generic 2.0).
-        assert rank_jobs.it_management_focus_score("Cloud Engineer") == 3.0
+    def test_it_individual_contributor_is_demoted_below_management(self):
+        # An IT IC (Cloud Engineer) is demoted to 2.5 so every management role
+        # (>= 4.0) outranks it on the focus axis.
+        assert rank_jobs.it_management_focus_score("Cloud Engineer") == 2.5
 
     def test_generic_engineering_ic_without_it_signal(self):
         assert rank_jobs.it_management_focus_score("Development Engineer") == 2.0
 
-    def test_generic_engineering_management_without_it_signal_is_demoted(self):
-        # Generic "Head of Engineering" (no software/cloud/etc.) is demoted from 5.0.
-        assert rank_jobs.it_management_focus_score("Head of Engineering") == 3.0
+    def test_generic_engineering_management_scores_high(self):
+        # Generic "Head of Engineering" (no explicit software word) is a
+        # leadership role → 4.0 (IT context is enforced by the relevance gate).
+        assert rank_jobs.it_management_focus_score("Head of Engineering") == 4.0
+
+    def test_every_management_role_outranks_every_ic_role(self):
+        mgmt = [
+            "Head of Software Engineering", "Engineering Manager",
+            "Director of Engineering", "VP Engineering", "CTO",
+            "Head of Cloud", "Program Manager - Platform",
+        ]
+        ic = [
+            "Senior Software Engineer", "Platform Engineer", "Cloud Engineer",
+            "Staff Engineer", "Principal Engineer", "DevOps Engineer",
+        ]
+        worst_mgmt = min(rank_jobs.it_management_focus_score(t) for t in mgmt)
+        best_ic = max(rank_jobs.it_management_focus_score(t) for t in ic)
+        assert worst_mgmt > best_ic
 
     def test_excluded_keyword_forces_min(self):
         assert rank_jobs.it_management_focus_score("Sales Engineer") == 1.0

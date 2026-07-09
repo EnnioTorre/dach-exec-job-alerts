@@ -335,7 +335,7 @@ def is_relevant(job: dict) -> bool:
     cto_like = bool(re.search(r"\bcto\b", title)) or "chief technology officer" in title
     has_role = any(kw in title for kw in ROLE_KEYWORDS)
     has_domain = any(kw in title for kw in DOMAIN_KEYWORDS)
-    has_tech_ic_role = any(kw in title for kw in TECH_IC_KEYWORDS)
+    has_management = _contains_any(title, MANAGEMENT_KEYWORDS)
 
     # Filter obvious category/listing pages that are not concrete job ads.
     if "karriere.at" in url:
@@ -350,13 +350,18 @@ def is_relevant(job: dict) -> bool:
     if not has_job_url_hint and not (has_role and has_domain):
         return False
 
-    if not (cto_like or (has_role and has_domain) or has_tech_ic_role):
+    # Strict pool targets management / leadership roles only (Engineering /
+    # Program Manager, Lead, Director, Head of…, VP, CTO). Individual-contributor
+    # titles (Senior/Staff/Platform/Cloud Engineer, Developer) are intentionally
+    # excluded here and only enter via is_relevant_relaxed as a fill-in when too
+    # few leadership roles are found.
+    if not (cto_like or has_management):
         return False
 
     # Restrict to genuinely IT/software roles: a generic "engineering" title
     # (which in DACH is frequently mechanical/electrical/industrial) only
     # qualifies when the title or company carries an explicit software/IT
-    # signal. CTO and clear tech-IC titles already contain such a signal.
+    # signal. CTO and clear tech leadership titles already contain such a signal.
     return _has_it_signal(job)
 
 
@@ -509,11 +514,16 @@ def language_score(language_hint: str, company: str) -> float:
 
 def it_management_focus_score(title: str) -> float:
     """
-    Score how closely a title matches IT management focus.
+    Score how closely a title matches IT *management / leadership* focus.
 
-    5.0: IT/software management leadership (mgmt + explicit software/IT signal)
-    3.0: management + generic engineering, or an IT individual-contributor role
-    2.0: generic engineering IC (no explicit IT signal)
+    The digest targets leadership roles (Engineering/Program Manager, Lead,
+    Director, Head of…, VP, CTO), so any management title outranks every
+    individual-contributor title on this axis.
+
+    5.0: IT/software leadership (management + explicit software/IT signal)
+    4.0: management + generic engineering (IT implied by the relevance gate)
+    2.5: IT individual contributor (Senior/Platform/Cloud Engineer, …) — demoted
+    2.0: generic engineering individual contributor
     1.5: management title without any engineering/IT signal
     1.0: explicitly non-IT indicators
     """
@@ -526,14 +536,14 @@ def it_management_focus_score(title: str) -> float:
     has_generic_eng = _contains_any(t, GENERIC_ENGINEERING_KEYWORDS)
     has_management = _contains_any(t, MANAGEMENT_KEYWORDS)
 
-    # Top score requires genuine IT/software leadership.
+    # Management / leadership roles always rank above individual contributors.
     if has_management and has_it_signal:
         return 5.0
-    # An IT individual contributor, or generic engineering leadership.
-    if has_it_signal:
-        return 3.0
     if has_management and has_generic_eng:
-        return 3.0
+        return 4.0
+    # Individual-contributor roles are demoted below every leadership role.
+    if has_it_signal:
+        return 2.5
     if has_generic_eng:
         return 2.0
     if has_management:

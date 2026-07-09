@@ -17,13 +17,12 @@
   ],
 
   "keyword_sets": {
-    "leader": "Engineering Manager OR CTO OR Head of Engineering OR VP Engineering OR Director of Engineering",
-    "principal_at": "Principal Engineer OR Staff Engineer OR Tech Lead OR Senior Engineer OR Platform Engineer",
-    "principal_de": "Principal Engineer OR Staff Engineer OR Tech Lead OR Senior Software Engineer",
-    "principal_ch": "Principal Engineer OR Staff Engineer OR Tech Lead OR Senior Software Engineer OR Platform Engineer",
-    "city": "Engineering Manager OR Head of Engineering OR CTO OR VP Engineering OR Tech Lead",
-    "cto_vp": "CTO OR Chief Technology Officer OR VP Engineering OR VP Technology",
-    "director": "Director of Engineering OR Director of Technology OR Engineering Director"
+    "leader": "Engineering Manager OR Head of Engineering OR CTO OR VP Engineering OR Director of Engineering OR Head of Software",
+    "mgmt_broad": "Engineering Manager OR Program Manager OR Technical Program Manager OR Engineering Lead OR Head of Engineering OR Director of Engineering",
+    "transformation": "Head of Digital Transformation OR Transformation Manager OR Innovation Manager OR Head of Innovation OR Head of Digital OR VP Technology",
+    "city": "Engineering Manager OR Head of Engineering OR CTO OR VP Engineering OR Engineering Lead OR Director of Engineering",
+    "cto_vp": "CTO OR Chief Technology Officer OR VP Engineering OR VP Technology OR Chief Digital Officer",
+    "director": "Director of Engineering OR Director of Technology OR Engineering Director OR Head of Technology"
   },
 
   "sources": [
@@ -45,14 +44,14 @@
     {"name": "linkedin_at_leader_1",    "type": "linkedin_api", "region": "AT", "keyword_set": "leader",       "location": "Austria",           "start": 10},
     {"name": "linkedin_at_leader_2",    "type": "linkedin_api", "region": "AT", "keyword_set": "leader",       "location": "Austria",           "start": 20},
     {"name": "linkedin_at_leader_3",    "type": "linkedin_api", "region": "AT", "keyword_set": "leader",       "location": "Austria",           "start": 30},
-    {"name": "linkedin_at_principal_0", "type": "linkedin_api", "region": "AT", "keyword_set": "principal_at", "location": "Austria",           "start": 0},
-    {"name": "linkedin_at_principal_1", "type": "linkedin_api", "region": "AT", "keyword_set": "principal_at", "location": "Austria",           "start": 10},
+    {"name": "linkedin_at_mgmt_0",     "type": "linkedin_api", "region": "AT", "keyword_set": "mgmt_broad",   "location": "Austria",           "start": 0},
+    {"name": "linkedin_at_mgmt_1",     "type": "linkedin_api", "region": "AT", "keyword_set": "mgmt_broad",   "location": "Austria",           "start": 10},
 
     {"name": "linkedin_de_leader_0",    "type": "linkedin_api", "region": "DE", "keyword_set": "leader",       "location": "Germany",           "start": 0},
     {"name": "linkedin_de_leader_1",    "type": "linkedin_api", "region": "DE", "keyword_set": "leader",       "location": "Germany",           "start": 10},
     {"name": "linkedin_de_leader_2",    "type": "linkedin_api", "region": "DE", "keyword_set": "leader",       "location": "Germany",           "start": 20},
-    {"name": "linkedin_de_principal_0", "type": "linkedin_api", "region": "DE", "keyword_set": "principal_de", "location": "Germany",           "start": 0},
-    {"name": "linkedin_de_principal_1", "type": "linkedin_api", "region": "DE", "keyword_set": "principal_de", "location": "Germany",           "start": 10},
+    {"name": "linkedin_de_mgmt_0",     "type": "linkedin_api", "region": "DE", "keyword_set": "mgmt_broad",   "location": "Germany",           "start": 0},
+    {"name": "linkedin_de_mgmt_1",     "type": "linkedin_api", "region": "DE", "keyword_set": "mgmt_broad",   "location": "Germany",           "start": 10},
 
     {"name": "linkedin_ch_leader_0",    "type": "linkedin_api", "region": "CH", "keyword_set": "leader",       "location": "Switzerland",       "start": 0},
     {"name": "linkedin_ch_leader_1",    "type": "linkedin_api", "region": "CH", "keywords": "Engineering Manager OR CTO OR Head of Engineering OR VP Engineering", "location": "Switzerland", "start": 10},
@@ -60,24 +59,24 @@
     {"name": "linkedin_dach_cto_0",     "type": "linkedin_api", "region": "DACH", "keyword_set": "cto_vp",     "location": "DACH",              "start": 0},
     {"name": "linkedin_dach_dir_0",     "type": "linkedin_api", "region": "DACH", "keyword_set": "director",   "location": "DACH",              "start": 0},
 
-    {"name": "linkedin_vienna_0",       "type": "linkedin_api", "region": "AT", "keywords": "Engineering Manager OR Head of Engineering OR CTO OR Tech Lead", "location": "Vienna, Austria", "start": 0},
+    {"name": "linkedin_vienna_0",       "type": "linkedin_api", "region": "AT", "keywords": "Engineering Manager OR Head of Engineering OR CTO OR Engineering Lead OR Director of Engineering", "location": "Vienna, Austria", "start": 0},
     {"name": "linkedin_berlin_0",       "type": "linkedin_api", "region": "DE", "keywords": "Engineering Manager OR Head of Engineering OR CTO OR VP Engineering", "location": "Berlin, Germany", "start": 0},
 
     {"name": "linkedin_at_leader_4",    "type": "linkedin_api", "region": "AT", "keyword_set": "leader",       "location": "Austria",           "start": 40},
     {"name": "linkedin_de_leader_3",    "type": "linkedin_api", "region": "DE", "keyword_set": "leader",       "location": "Germany",           "start": 30},
     {"name": "linkedin_de_leader_4",    "type": "linkedin_api", "region": "DE", "keyword_set": "leader",       "location": "Germany",           "start": 40},
     {"name": "linkedin_ch_leader_2",    "type": "linkedin_api", "region": "CH", "keyword_set": "leader",       "location": "Switzerland",       "start": 20},
-    {"name": "linkedin_ch_principal_0", "type": "linkedin_api", "region": "CH", "keyword_set": "principal_ch", "location": "Switzerland",       "start": 0},
+    {"name": "linkedin_dach_transform_0", "type": "linkedin_api", "region": "DACH", "keyword_set": "transformation", "location": "DACH",         "start": 0},
 
     {"name": "linkedin_vienna_1",       "type": "linkedin_api", "region": "AT", "keyword_set": "city",         "location": "Vienna, Austria",   "start": 10},
-    {"name": "linkedin_graz_0",         "type": "linkedin_api", "region": "AT", "keywords": "Engineering Manager OR Head of Engineering OR CTO OR Tech Lead OR Software Engineer", "location": "Graz, Austria", "start": 0},
+    {"name": "linkedin_graz_0",         "type": "linkedin_api", "region": "AT", "keywords": "Engineering Manager OR Head of Engineering OR CTO OR Engineering Lead OR Director of Engineering", "location": "Graz, Austria", "start": 0},
     {"name": "linkedin_berlin_1",       "type": "linkedin_api", "region": "DE", "keyword_set": "city",         "location": "Berlin, Germany",   "start": 10},
     {"name": "linkedin_munich_0",       "type": "linkedin_api", "region": "DE", "keyword_set": "city",         "location": "Munich, Germany",   "start": 0},
     {"name": "linkedin_munich_1",       "type": "linkedin_api", "region": "DE", "keyword_set": "city",         "location": "Munich, Germany",   "start": 10},
     {"name": "linkedin_hamburg_0",      "type": "linkedin_api", "region": "DE", "keyword_set": "city",         "location": "Hamburg, Germany",  "start": 0},
     {"name": "linkedin_frankfurt_0",    "type": "linkedin_api", "region": "DE", "keyword_set": "city",         "location": "Frankfurt, Germany","start": 0},
     {"name": "linkedin_zurich_0",       "type": "linkedin_api", "region": "CH", "keyword_set": "city",         "location": "Zurich, Switzerland","start": 0},
-    {"name": "linkedin_bolzano_0",      "type": "linkedin_api", "region": "IT", "keywords": "Engineering Manager OR Head of Engineering OR CTO OR VP Engineering OR Tech Lead OR Software Engineer", "location": "Bolzano, Italy", "start": 0},
+    {"name": "linkedin_bolzano_0",      "type": "linkedin_api", "region": "IT", "keywords": "Engineering Manager OR Head of Engineering OR CTO OR VP Engineering OR Engineering Lead", "location": "Bolzano, Italy", "start": 0},
 
     {"name": "google_linkedin_at",        "type": "google_proxy", "region": "AT",   "num": 20, "query": "site:linkedin.com/jobs/view (\"Head of Engineering\" OR \"VP Engineering\" OR CTO) Austria"},
     {"name": "google_linkedin_de",        "type": "google_proxy", "region": "DE",   "num": 20, "query": "site:linkedin.com/jobs/view (\"CTO\" OR \"VP Engineering\" OR \"Director of Engineering\") Germany"},
