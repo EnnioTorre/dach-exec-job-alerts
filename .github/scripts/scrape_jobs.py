@@ -33,6 +33,18 @@ try:
 except Exception:  # pragma: no cover - optional dependency
     certifi = None
 
+# Optional statistical language detector. Pure-Python, CI-friendly and
+# deterministic (see seed below). When it is not installed the pipeline falls
+# back to the dependency-free heuristic in `_infer_language_hint`, so this is a
+# soft/optional enhancement — never a hard requirement.
+try:
+    from langdetect import detect_langs as _ld_detect_langs
+    from langdetect import DetectorFactory as _LdDetectorFactory
+
+    _LdDetectorFactory.seed = 0  # deterministic output across runs
+except Exception:  # pragma: no cover - optional dependency
+    _ld_detect_langs = None
+
 # ---------------------------------------------------------------------------
 # Source registry
 #   type:
@@ -831,7 +843,14 @@ def normalize_jsonld(job: dict, source_name: str) -> dict:
 
     desc = (job.get("description") or "")
     title = (job.get("title") or "").strip()
-    lang_hint = _infer_language_hint(f"{title} {desc}")
+    # Language from a reliable tag (JSON-LD inLanguage) or the body — never the
+    # title's prose (a structural marker like (m/w/d) in it still counts).
+    lang_hint = detect_job_language(
+        tag=job.get("inLanguage") or "",
+        body=re.sub(r"<[^>]+>", " ", str(desc)),
+        markers_text=title,
+        allow_fetch=False,
+    )
 
     return {
         "title": job.get("title", "").strip(),
@@ -909,7 +928,11 @@ def parse_rss(xml_text: str, source_name: str) -> list[dict]:
             "application_url": link,
             "publish_date": pub_date,
             "salary_text": "",
-            "language_hint": _infer_language_hint(f"{title} {desc}"),
+            "language_hint": detect_job_language(
+                body=re.sub(r"<[^>]+>", " ", desc) if desc else "",
+                markers_text=title,
+                allow_fetch=False,
+            ),
         })
     return jobs
 
@@ -962,14 +985,13 @@ def parse_json_jobs(json_text: str, source_name: str) -> list[dict]:
         created = item.get("created_at") or item.get("published_at") or ""
         publish_date = str(created).strip() if created is not None else ""
 
-        # Detect language from the posting body, not just the title: DACH feeds
+        # Detect language from the posting body, not the title: DACH feeds
         # (e.g. arbeitnow) routinely carry an English-looking title over a fully
-        # German description, so a title-only guess mislabels them as 'en'. The
-        # description is HTML — strip tags before scoring, matching
-        # normalize_jsonld / parse_rss.
+        # German description, so a title-prose guess mislabels them as 'en'. The
+        # description is HTML — strip tags before scoring. A structural German
+        # marker in the title is still honored via markers_text.
         desc = item.get("description") or ""
         desc_text = re.sub(r"<[^>]+>", " ", desc) if desc else ""
-        lang_text = f"{title} {desc_text}".strip()[:2500]
 
         jobs.append({
             "title": title,
@@ -980,7 +1002,9 @@ def parse_json_jobs(json_text: str, source_name: str) -> list[dict]:
             "application_url": link,
             "publish_date": publish_date,
             "salary_text": "",
-            "language_hint": _infer_language_hint(lang_text),
+            "language_hint": detect_job_language(
+                body=desc_text, markers_text=title, allow_fetch=False
+            ),
         })
 
     return jobs
@@ -1295,28 +1319,288 @@ def _clean_text(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
+def _normalize_for_langdetect(text: str, max_chars: int = 1500) -> str:
+    """
+    Reduce a job ad to a clean, bounded text sample for statistical language
+    detection.
+
+    Strips markup/URLs/emails/digits/punctuation/emoji NOISE but deliberately
+    KEEPS every Unicode letter — including German umlauts (ä ö ü ß) and other
+    diacritics, which are the strongest signal an n-gram detector has for
+    German. Only a leading fraction (``max_chars``) is returned to bound cost.
+    """
+    t = text or ""
+    t = re.sub(r"<[^>]+>", " ", t)                       # any stray HTML tags
+    t = re.sub(r"https?://\S+|www\.\S+", " ", t)         # URLs
+    t = re.sub(r"\S+@\S+", " ", t)                       # emails
+    # Keep Unicode letters and whitespace only; drop digits, underscore,
+    # punctuation and emoji. With re.UNICODE, \w preserves ä ö ü ß / accents.
+    t = re.sub(r"[\d_\W]+", " ", t, flags=re.UNICODE)
+    t = re.sub(r"\s+", " ", t).strip()
+    return t[:max_chars]
+
+
+def _langdetect_top(text: str, min_chars: int = 40):
+    """
+    Best ``(lang, prob)`` guess from the optional ``langdetect`` library on a
+    cleaned, letter-only sample — for ANY language, not just de/en.
+
+    Returns ``None`` when the library is unavailable, the sample is too short to
+    be reliable, or detection fails. Never raises.
+    """
+    if _ld_detect_langs is None:
+        return None
+    sample = _normalize_for_langdetect(text)
+    if len(sample) < min_chars:
+        return None
+    try:
+        ranked = _ld_detect_langs(sample)
+    except Exception:  # pragma: no cover - library edge cases
+        return None
+    if not ranked:
+        return None
+    best = max(ranked, key=lambda c: c.prob)
+    return best.lang, best.prob
+
+
+def _detect_lang_via_library(text: str, min_prob: float = 0.60):
+    """
+    Best-effort DE/EN detection via the optional ``langdetect`` library.
+
+    Returns ``"de"``/``"en"`` only when the confident top guess is German or
+    English; returns ``None`` in every other case (library absent, sample too
+    short, low confidence, or a third language wins) so the caller can fall back
+    to the dependency-free heuristic.
+    """
+    top = _langdetect_top(text)
+    if top is None:
+        return None
+    lang, prob = top
+    if lang in ("de", "en") and prob >= min_prob:
+        return lang
+    return None
+
+
+# Strong DACH audience markers that pin a posting to German regardless of any
+# statistical guess: explicit German-skill requirements, gender notation
+# (m/w/d), and the neutral suffixes :in / :innen / *in.
+_DE_EXPLICIT_RE = re.compile(
+    r"deutschkenntnisse|flie\wend\s+deutsch|deutsch\s+(?:erforderlich|zwingend)|german\s+required",
+    re.I,
+)
+_DE_AUDIENCE_RE = re.compile(
+    r"\(\s*[mwfdx](?:\s*[/,]\s*[mwfdx]){1,2}\s*\)|[a-zäöü]+(?::innen|:in|\*in|\*innen)\b",
+    re.I,
+)
+
+
+def detect_language(text: str) -> str:
+    """
+    Report the dominant language of a text as an ISO 639-1 code
+    (e.g. ``"en"``, ``"de"``, ``"fr"``, ``"it"``).
+
+    This is the "which language is this?" helper. Unlike ``_infer_language_hint``
+    it does NOT collapse everything to de/en, so a third language surfaces as its
+    own code (the "rest" bucket used by the ranker). Detection order:
+
+      1. Empty/blank input           → ``"und"`` (undetermined).
+      2. Explicit / audience markers → ``"de"`` (high-precision, always wins).
+      3. Optional ``langdetect``     → confident code for any language.
+      4. Fallback                    → dependency-free de/en heuristic.
+    """
+    if not (text or "").strip():
+        return "und"
+    if _DE_EXPLICIT_RE.search(text) or _DE_AUDIENCE_RE.search(text):
+        return "de"
+    top = _langdetect_top(text)
+    if top is not None and top[1] >= 0.60:
+        return top[0]
+    return _infer_language_hint(text)
+
+
+# Enough real letters (including spaces) in a normalized body sample to trust
+# language detection on it. Below this we treat the body as effectively absent
+# and require a reliable tag (or an audience marker) instead of guessing.
+_MIN_BODY_CHARS_FOR_LANG = 40
+
+# Reliable language tag / locale / name → ISO-639-1. UI locales such as "de-AT"
+# and human names like "German" / "Deutsch" collapse to their base code. This
+# only ever consumes structured, trustworthy tags — never a job title.
+_LANG_TAG_ALIASES = {
+    "de": "de", "deu": "de", "ger": "de", "german": "de", "deutsch": "de",
+    "en": "en", "eng": "en", "english": "en", "englisch": "en",
+    "fr": "fr", "fra": "fr", "french": "fr", "franz": "fr", "französisch": "fr",
+    "it": "it", "ita": "it", "italian": "it", "italienisch": "it",
+}
+
+
+def _normalize_lang_tag(raw) -> str | None:
+    """
+    Normalize a language tag / locale / name to an ISO-639-1 code.
+
+    Accepts JSON-LD ``inLanguage`` ("de-DE"), ``<html lang>`` ("en"), meta
+    locales ("de_AT") or human names ("German"). Returns a 2-letter code, or
+    None when the value is missing/unrecognized.
+    """
+    if not raw:
+        return None
+    s = str(raw).strip().lower().replace("_", "-")
+    if not s:
+        return None
+    base = s.split("-")[0]
+    if base in _LANG_TAG_ALIASES:
+        return _LANG_TAG_ALIASES[base]
+    if s in _LANG_TAG_ALIASES:
+        return _LANG_TAG_ALIASES[s]
+    # A bare, plausible ISO-639-1 code we have no alias for (e.g. "es", "nl").
+    if re.fullmatch(r"[a-z]{2}", base):
+        return base
+    return None
+
+
+def _language_tag_from_html(html: str) -> str | None:
+    """
+    Extract a reliable language tag from HTML: JSON-LD ``inLanguage`` first
+    (per-posting), then ``<html lang>``, then content-language / og:locale
+    meta tags. Returns an ISO-639-1 code or None.
+    """
+    if not html:
+        return None
+    for j in extract_jsonld_jobs(html):
+        if isinstance(j, dict):
+            code = _normalize_lang_tag(j.get("inLanguage"))
+            if code:
+                return code
+    soup = BeautifulSoup(html, "html.parser")
+    html_el = soup.find("html")
+    if html_el is not None:
+        code = _normalize_lang_tag(html_el.get("lang") or html_el.get("xml:lang"))
+        if code:
+            return code
+    for attrs in (
+        {"http-equiv": re.compile(r"content-language", re.I)},
+        {"property": re.compile(r"og:locale", re.I)},
+    ):
+        meta = soup.find("meta", attrs=attrs)
+        if meta is not None:
+            code = _normalize_lang_tag(meta.get("content"))
+            if code:
+                return code
+    return None
+
+
+def _audience_marker_lang(text: str) -> str | None:
+    """
+    Return ``"de"`` when a text carries a high-precision German *audience*
+    marker — gender notation ``(m/w/d)``, neutral suffixes ``:in`` / ``:innen``
+    / ``*in``, or an explicit German-skill requirement. These are structural
+    locale signals, not a guess at the prose language, so they are trustworthy
+    even when found in an otherwise-English title. Returns None otherwise.
+    """
+    if text and (_DE_EXPLICIT_RE.search(text) or _DE_AUDIENCE_RE.search(text)):
+        return "de"
+    return None
+
+
+def _body_language(body: str) -> str | None:
+    """
+    Detect language from an ad BODY only. Returns an ISO code when the body
+    carries a German audience marker or is substantial enough to be reliable,
+    else None so the caller falls back to a tag rather than a title guess.
+    """
+    if not body:
+        return None
+    marker = _audience_marker_lang(body)
+    if marker:
+        return marker
+    if len(_normalize_for_langdetect(body)) < _MIN_BODY_CHARS_FOR_LANG:
+        return None
+    lang = detect_language(body)
+    return lang if lang and lang != "und" else None
+
+
+def detect_job_language(
+    *,
+    body: str = "",
+    tag: str = "",
+    html: str = "",
+    markers_text: str = "",
+    url: str = "",
+    market_default: str | None = None,
+    allow_fetch: bool = True,
+) -> str:
+    """
+    Resolve a posting's language WITHOUT trusting the prose of its job title.
+
+    Priority (first reliable signal wins):
+      1. Explicit language ``tag`` passed in (e.g. JSON-LD ``inLanguage``).
+      2. A language tag embedded in provided ``html`` (``<html lang>`` / meta).
+      3. Body-text detection, when the ``body`` is substantial or carries a
+         German audience marker.
+      4. A German audience marker in ``markers_text`` (e.g. the title) — a
+         structural locale signal, not a prose-language guess.
+      5. Fetch the destination ``url`` for its tag/body (bounded & cached).
+      6. ``market_default`` — a domain-locale prior for German-audience boards.
+      7. ``""`` (unknown) — left for the AI pre-rank step to fill; never a
+         title-prose guess.
+    """
+    code = _normalize_lang_tag(tag)
+    if code:
+        return code
+    if html:
+        code = _language_tag_from_html(html)
+        if code:
+            return code
+    code = _body_language(body)
+    if code:
+        return code
+    code = _audience_marker_lang(markers_text)
+    if code:
+        return code
+    if allow_fetch and url:
+        code = _fetch_job_page_language(url)
+        if code:
+            return code
+    return market_default or ""
+
+
+
 def _infer_language_hint(text: str) -> str:
     """
-    Heuristic German-vs-English detector (dependency-free).
+    German-vs-English detector.
 
-    The previous version only flagged "de" when the literal word "deutsch"
-    appeared, so the vast majority of German postings defaulted to "en".
-    This version scores German vs English function words plus German-only
-    characters (ä ö ü ß) and common German job-title/description markers,
-    which are strong, high-precision signals in DACH job text.
+    Layered for precision + robustness:
+      1. Explicit "Deutschkenntnisse / German required" signals win outright.
+      2. High-precision DACH *audience* markers — gender notation (m/w/d) and
+         the neutral suffixes :in / :innen / *in — force "de" even when the job
+         TITLE is English (common for exec/tech roles).
+      3. If the optional `langdetect` library is available AND the ad body is
+         long enough to be reliable, trust its confident DE/EN verdict.
+      4. Otherwise fall back to the dependency-free function-word / umlaut /
+         job-stem scoring heuristic below.
     """
     t = (text or "").lower()
     if not t.strip():
         return "en"
 
-    # Strong explicit signals win immediately.
-    if re.search(r"deutschkenntnisse|flie\wend\s+deutsch|deutsch\s+(?:erforderlich|zwingend)|german\s+required", t):
+    # (1) Strong explicit signals and (2) German/Austrian audience markers —
+    # gender notation (m/w/d) and neutral suffixes :in / :innen / *in — are
+    # high-precision: they pin a posting to German even when the TITLE is
+    # English, and must win before any statistical guess.
+    if _DE_EXPLICIT_RE.search(text or "") or _DE_AUDIENCE_RE.search(text or ""):
         return "de"
 
+    # (3) Optional statistical detector for longer bodies (fixes long German
+    # ads that lack the markers above, e.g. issue #44). No-op when langdetect
+    # is not installed or the sample is too short/low-confidence.
+    lib_lang = _detect_lang_via_library(text)
+    if lib_lang is not None:
+        return lib_lang
+
+    # (4) Dependency-free scoring heuristic (fallback).
     tokens = re.findall(r"[a-zäöüß]+", t)
     if not tokens:
         return "en"
-    token_set = set(tokens)
 
     umlaut_hits = len(re.findall(r"[äöüß]", t))
 
@@ -1325,13 +1609,6 @@ def _infer_language_hint(text: str) -> str:
 
     # German umlauts almost never appear in English job text — weight them.
     de_score += 1.5 * umlaut_hits
-
-    # German/Austrian gender notation — e.g. (m/w/d), (w/m/x), (d/m/f), m,w,d,
-    # and the gender-neutral suffixes :in / *in — are high-precision markers
-    # that a posting is written for a German-language audience, even when the
-    # job TITLE itself is in English (very common for exec/tech roles).
-    if re.search(r"\(\s*[mwfdx](?:\s*[/,]\s*[mwfdx]){1,2}\s*\)", t) or re.search(r"[a-zäöü]+(?::innen|:in|\*in|\*innen)\b", t):
-        de_score += 2
 
     # German job-title / description stems (leiter, geschäftsführer, entwicklung…).
     if re.search(
@@ -1362,23 +1639,20 @@ _GERMAN_MARKET_HOST_RE = re.compile(
 
 def _serp_lang_hint(title: str, company: str, snippet: str, url: str) -> str:
     """
-    Language hint for a SERP-proxied job row (LinkedIn/Stepstone/jobs.ch/…).
-
-    SERP titles + snippets are short and frequently English even when the
-    underlying posting is German, so a snippet-only guess mislabels many
-    DACH-market roles as 'en' (which the ranker then over-rewards). We first
-    guess from the combined SERP text; only for the ambiguous English-looking
-    case do we confirm against the real posting body — the LinkedIn guest
-    endpoint for linkedin.com/jobs/view URLs, otherwise the generic destination
-    page. Both enrichers are bounded/cached per run. When enrichment is
-    unavailable we fall back to 'de' for unambiguously German-audience boards,
-    otherwise keep the snippet guess.
+    Language for a SERP-proxied row (LinkedIn/Stepstone/jobs.ch/…) WITHOUT
+    trusting the (often English) title prose. Order: the SERP snippet as a body
+    proxy (when substantial) or a German audience marker in the title → the
+    real posting body/tag — the LinkedIn guest endpoint for
+    linkedin.com/jobs/view URLs, otherwise the destination page → a
+    German-market domain default → unknown (''). ``company`` is not a language
+    signal and is ignored.
     """
-    guess = _infer_language_hint(f"{title} {company} {snippet}")
-    if guess != "en":
-        return guess
+    body_lang = _body_language(snippet) or _audience_marker_lang(title)
+    if body_lang:
+        return body_lang
 
     u = (url or "").lower()
+    market_default = "de" if _GERMAN_MARKET_HOST_RE.search(u) else ""
     if os.getenv("SCRAPER_PAGE_LANG_ENRICH", "true").lower() in {"1", "true", "yes"}:
         m = re.search(r"linkedin\.com/jobs/view/(\d+)", u)
         enriched = (
@@ -1389,9 +1663,7 @@ def _serp_lang_hint(title: str, company: str, snippet: str, url: str) -> str:
         if enriched:
             return enriched
 
-    if _GERMAN_MARKET_HOST_RE.search(u):
-        return "de"
-    return guess
+    return market_default
 
 
 def _extract_salary(text: str) -> str:
@@ -1479,10 +1751,12 @@ def _text(el) -> str:
 
 def _fetch_job_page_language(url: str) -> str | None:
     """
-    Fetch a destination job page and detect its language from the posting body
-    (JSON-LD description first, then a visible description container).
-    Returns 'de'/'en', or None if unavailable. Cached per URL and capped per run
-    (SCRAPER_PAGE_LANG_ENRICH_MAX, default 80) to bound runtime and 429 risk.
+    Fetch a destination job page and determine its language from a reliable
+    signal: first a language tag (JSON-LD ``inLanguage`` / ``<html lang>`` /
+    meta), then the posting body (JSON-LD description or a visible description
+    container). Returns an ISO code, or None if unavailable. Cached per URL and
+    capped per run (SCRAPER_PAGE_LANG_ENRICH_MAX, default 80) to bound runtime
+    and 429 risk.
     """
     if not url or not url.startswith("http"):
         return None
@@ -1500,42 +1774,44 @@ def _fetch_job_page_language(url: str) -> str | None:
         _PAGE_LANG_CACHE[url] = ""
         return None
 
-    text = ""
-    for j in extract_jsonld_jobs(html):
-        if isinstance(j, dict) and j.get("description"):
-            text = str(j["description"])
-            break
-    if not text:
-        soup = BeautifulSoup(html, "html.parser")
-        el = (
-            soup.find(attrs={"data-at": re.compile(r"job-ad-content|listing-content", re.I)})
-            or soup.find(class_=re.compile(r"job-ad|description|listing__content|job-detail", re.I))
-        )
-        text = el.get_text(" ", strip=True) if el else ""
-    if not text:
-        _PAGE_LANG_CACHE[url] = ""
-        return None
+    # Prefer an explicit, reliable language tag over body detection.
+    lang = _language_tag_from_html(html)
+    if not lang:
+        text = ""
+        for j in extract_jsonld_jobs(html):
+            if isinstance(j, dict) and j.get("description"):
+                text = str(j["description"])
+                break
+        if not text:
+            soup = BeautifulSoup(html, "html.parser")
+            el = (
+                soup.find(attrs={"data-at": re.compile(r"job-ad-content|listing-content", re.I)})
+                or soup.find(class_=re.compile(r"job-ad|description|listing__content|job-detail", re.I))
+            )
+            text = el.get_text(" ", strip=True) if el else ""
+        lang = _body_language(re.sub(r"<[^>]+>", " ", text)) if text else None
 
-    lang = _infer_language_hint(re.sub(r"<[^>]+>", " ", text)[:2500])
-    _PAGE_LANG_CACHE[url] = lang
+    _PAGE_LANG_CACHE[url] = lang or ""
     return lang
 
 
-def _german_market_lang_hint(title: str, url: str) -> str:
+def _market_lang_hint(url: str, source_name: str = "", title: str = "") -> str:
     """
-    Language hint for a German-market board (Stepstone, karriere.at).
-
-    Default to 'de' (the correct prior for these boards). Only when the title
-    itself looks English — the ambiguous case — do we confirm against the
-    posting body, so a genuinely English role is labelled 'en' while an
-    English-titled German posting stays 'de'. Bounded/cached via
-    _fetch_job_page_language; falls back to 'de' when enrichment is unavailable.
+    Language for a job-board *card* (Stepstone, karriere.at, jobs.ch) where the
+    listing carries no body text. The title's prose is deliberately ignored as
+    unreliable; only a structural German audience marker in it counts. Order:
+    audience marker in the title → reliable tag/body fetched from the
+    destination page (bounded/cached) → the board's audience locale ('de' for
+    German-market boards) → unknown ('').
     """
-    if _infer_language_hint(title) != "en":
-        return "de"
-    if os.getenv("SCRAPER_PAGE_LANG_ENRICH", "true").lower() not in {"1", "true", "yes"}:
-        return "de"
-    return _fetch_job_page_language(url) or "de"
+    market_default = "de" if _GERMAN_MARKET_HOST_RE.search((url or "").lower()) else ""
+    allow_fetch = os.getenv("SCRAPER_PAGE_LANG_ENRICH", "true").lower() in {"1", "true", "yes"}
+    return detect_job_language(
+        markers_text=title,
+        url=url,
+        market_default=market_default,
+        allow_fetch=allow_fetch,
+    )
 
 
 def parse_stepstone(html: str, source_name: str) -> list[dict]:
@@ -1561,7 +1837,7 @@ def parse_stepstone(html: str, source_name: str) -> list[dict]:
             "application_url": href,
             "publish_date": "",
             "salary_text": "",
-            "language_hint": _german_market_lang_hint(_text(title_el), href),
+            "language_hint": _market_lang_hint(href, source_name, _text(title_el)),
         })
     if not jobs:
         for card in soup.find_all("article", class_=re.compile(r"[Jj]ob[Cc]ard|[Jj]ob[Ii]tem")):
@@ -1578,7 +1854,7 @@ def parse_stepstone(html: str, source_name: str) -> list[dict]:
                 "application_url": link_el["href"] if link_el else "",
                 "publish_date": "",
                 "salary_text": "",
-                "language_hint": _german_market_lang_hint(_text(title_el), link_el["href"] if link_el else ""),
+                "language_hint": _market_lang_hint(link_el["href"] if link_el else "", source_name, _text(title_el)),
             })
     return jobs
 
@@ -1613,7 +1889,7 @@ def parse_karriere_at(html: str, source_name: str) -> list[dict]:
             "application_url": href,
             "publish_date": "",
             "salary_text": "",
-            "language_hint": _german_market_lang_hint(_text(title_el), href),
+            "language_hint": _market_lang_hint(href, source_name, _text(title_el)),
         })
     return jobs
 
@@ -1641,7 +1917,7 @@ def parse_jobs_ch(html: str, source_name: str) -> list[dict]:
             "application_url": href,
             "publish_date": "",
             "salary_text": "",
-            "language_hint": _infer_language_hint(_text(title_el)),
+            "language_hint": _market_lang_hint(href, source_name, _text(title_el)),
         })
     return jobs
 
@@ -1684,12 +1960,10 @@ def _fetch_linkedin_job_language(job_id: str) -> str | None:
             if isinstance(j, dict) and j.get("description"):
                 text = str(j["description"])
                 break
-    if not text:
-        _LINKEDIN_LANG_CACHE[job_id] = ""
-        return None
 
-    lang = _infer_language_hint(text[:2500])
-    _LINKEDIN_LANG_CACHE[job_id] = lang
+    # Prefer a reliable language tag; otherwise detect from the description body.
+    lang = _language_tag_from_html(html) or (_body_language(text) if text else None)
+    _LINKEDIN_LANG_CACHE[job_id] = lang or ""
     return lang
 
 
@@ -1736,16 +2010,15 @@ def parse_linkedin_guest_api(html: str, source_name: str) -> list[dict]:
         loc_el = li.find(class_=lambda c: c and "job-search-card__location" in c)
         location = loc_el.get_text(strip=True) if loc_el else ""
 
-        # Language: start from the title, then, for English-looking titles
-        # (the ambiguous case — German-titled cards are already correct),
-        # confirm against the actual posting description when enrichment is on.
-        lang_hint = _infer_language_hint(title)
-        if lang_hint == "en" and os.getenv(
+        # Language: never from the title prose. Read the actual posting body via
+        # the LinkedIn guest endpoint (bounded/cached); a structural German
+        # marker in the title still counts. Left unknown ('') when enrichment is
+        # off or unavailable — the AI pre-rank step fills it.
+        lang_hint = _audience_marker_lang(title) or ""
+        if not lang_hint and os.getenv(
             "SCRAPER_LINKEDIN_LANG_ENRICH", "true"
         ).lower() in {"1", "true", "yes"}:
-            enriched = _fetch_linkedin_job_language(job_id)
-            if enriched:
-                lang_hint = enriched
+            lang_hint = _fetch_linkedin_job_language(job_id) or ""
 
         jobs.append({
             "title": title,

@@ -28,7 +28,6 @@ from scrape_jobs import (
     parse_karriere_at,
     parse_google_jobs,
     parse_jobs_ch,
-    _infer_language_hint,
 )
 
 EXTRA_SOURCES_PATH = "/tmp/jobs/extra_sources.json"
@@ -83,7 +82,9 @@ def _generic_heading_scan(html: str, url: str, name: str) -> list[dict]:
             "application_url": href,
             "publish_date": "",
             "salary_text": "",
-            "language_hint": _infer_language_hint(text),
+            # Heading-only row: no body or language tag available, and the title
+            # prose is unreliable — leave unknown for the AI pre-rank to fill.
+            "language_hint": "",
         })
     return jobs
 

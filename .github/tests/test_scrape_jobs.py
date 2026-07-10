@@ -3,7 +3,7 @@ Unit tests for the pure helpers in `scrape_jobs.py`.
 
 Focus areas:
   - `_infer_language_hint`: the DE/EN heuristic detector (recently overhauled)
-  - `_german_market_lang_hint`: German-market default + English-title probing
+  - `_market_lang_hint`: German-market default + title-free page probing
   - URL/host helpers: `_domain_family`, `_is_google_url`, `_extract_company_from_host`
   - misc: `_clean_text`, `_extract_salary`, `_parse_retry_after`,
     `_exponential_backoff_delay`
@@ -11,7 +11,7 @@ Focus areas:
     `_count_by`, `_parse_source_content`
 
 Network is never hit: the one function that would fetch a page
-(`_german_market_lang_hint`) is exercised with monkeypatched enrichment.
+(`_market_lang_hint`) is exercised with monkeypatched enrichment.
 """
 
 import json
@@ -54,33 +54,195 @@ class TestInferLanguageHint:
     def test_gender_neutral_suffix_flags_german(self):
         assert scrape_jobs._infer_language_hint("Mitarbeiter:innen gesucht") == "de"
 
+    def test_library_verdict_used_for_long_body(self, monkeypatch):
+        # When the optional library reports a confident verdict for a long body,
+        # it is trusted (this is the issue #44 path: long German ad misread by
+        # the pure heuristic). We stub the library layer to stay offline.
+        monkeypatch.setattr(scrape_jobs, "_detect_lang_via_library", lambda text: "de")
+        long_text = "This English wording alone " * 5
+        assert scrape_jobs._infer_language_hint(long_text) == "de"
+
+    def test_gender_marker_overrides_library(self, monkeypatch):
+        # DACH audience markers must win even if the library says English.
+        monkeypatch.setattr(scrape_jobs, "_detect_lang_via_library", lambda text: "en")
+        assert scrape_jobs._infer_language_hint("Software Engineer (m/w/d)") == "de"
+
 
 # ---------------------------------------------------------------------------
-# _german_market_lang_hint
+# _normalize_for_langdetect / _detect_lang_via_library
 # ---------------------------------------------------------------------------
 
-class TestGermanMarketLangHint:
-    def test_german_title_returns_de_without_probing(self, monkeypatch):
-        # Should never call the page fetcher when the title is already German.
-        def _boom(url):  # pragma: no cover - must not be called
-            raise AssertionError("page fetch should not happen for German titles")
+class TestNormalizeForLangDetect:
+    def test_keeps_umlauts_drops_noise(self):
+        raw = "Geschäftsführer (m/w/d) — 120.000€ — mail@x.co https://x.co/jobs?id=7 🚀"
+        out = scrape_jobs._normalize_for_langdetect(raw)
+        assert "Geschäftsführer" in out
+        # digits, urls, emails, currency, emoji and punctuation are stripped
+        assert "120" not in out and "€" not in out
+        assert "http" not in out and "@" not in out and "🚀" not in out
 
-        monkeypatch.setattr(scrape_jobs, "_fetch_job_page_language", _boom)
-        assert scrape_jobs._german_market_lang_hint("Leiter Entwicklung", "https://karriere.at/jobs/1") == "de"
+    def test_respects_max_chars(self):
+        assert len(scrape_jobs._normalize_for_langdetect("wort " * 500, max_chars=50)) <= 50
 
-    def test_english_title_defaults_de_when_enrichment_disabled(self, monkeypatch):
-        monkeypatch.setenv("SCRAPER_PAGE_LANG_ENRICH", "false")
-        assert scrape_jobs._german_market_lang_hint("Chief Technology Officer", "https://karriere.at/jobs/2") == "de"
 
-    def test_english_title_uses_page_language_when_enabled(self, monkeypatch):
-        monkeypatch.setenv("SCRAPER_PAGE_LANG_ENRICH", "true")
+class TestDetectLangViaLibrary:
+    def test_returns_none_when_library_absent(self, monkeypatch):
+        monkeypatch.setattr(scrape_jobs, "_ld_detect_langs", None)
+        assert scrape_jobs._detect_lang_via_library("Wir suchen einen Leiter") is None
+
+    def test_returns_none_for_short_sample(self, monkeypatch):
+        # Even with a "library" present, too-short samples are not trusted.
+        monkeypatch.setattr(scrape_jobs, "_ld_detect_langs", lambda s: [])
+        assert scrape_jobs._detect_lang_via_library("kurz") is None
+
+    def test_picks_confident_de_en_candidate(self, monkeypatch):
+        class _Cand:
+            def __init__(self, lang, prob):
+                self.lang, self.prob = lang, prob
+
+        monkeypatch.setattr(scrape_jobs, "_ld_detect_langs", lambda s: [_Cand("de", 0.95)])
+        long_text = "Wir suchen einen erfahrenen Leiter für unser Unternehmen im Bereich Entwicklung."
+        assert scrape_jobs._detect_lang_via_library(long_text) == "de"
+
+    def test_ignores_low_confidence(self, monkeypatch):
+        class _Cand:
+            def __init__(self, lang, prob):
+                self.lang, self.prob = lang, prob
+
+        monkeypatch.setattr(scrape_jobs, "_ld_detect_langs", lambda s: [_Cand("de", 0.40)])
+        long_text = "Wir suchen einen erfahrenen Leiter für unser Unternehmen im Bereich Entwicklung."
+        assert scrape_jobs._detect_lang_via_library(long_text) is None
+
+
+# ---------------------------------------------------------------------------
+# detect_language ("which language is this?" — does NOT collapse to de/en)
+# ---------------------------------------------------------------------------
+
+class TestDetectLanguage:
+    def test_blank_is_undetermined(self):
+        assert scrape_jobs.detect_language("") == "und"
+        assert scrape_jobs.detect_language("   ") == "und"
+
+    def test_audience_marker_pins_german(self, monkeypatch):
+        # (m/w/d) wins even if the library would say English.
+        monkeypatch.setattr(scrape_jobs, "_langdetect_top", lambda text, **k: ("en", 0.99))
+        assert scrape_jobs.detect_language("Software Engineer (m/w/d)") == "de"
+
+    def test_third_language_surfaces_as_its_own_code(self, monkeypatch):
+        # A confident non-de/en verdict is reported as-is (the "rest" bucket).
+        monkeypatch.setattr(scrape_jobs, "_langdetect_top", lambda text, **k: ("fr", 0.97))
+        assert scrape_jobs.detect_language("Nous recherchons un ingénieur logiciel expérimenté.") == "fr"
+
+    def test_low_confidence_falls_back_to_heuristic(self, monkeypatch):
+        monkeypatch.setattr(scrape_jobs, "_langdetect_top", lambda text, **k: ("fr", 0.30))
+        text = "We are looking for a Head of Engineering to join our team and lead our platform."
+        assert scrape_jobs.detect_language(text) == "en"
+
+    def test_falls_back_to_heuristic_without_library(self, monkeypatch):
+        monkeypatch.setattr(scrape_jobs, "_langdetect_top", lambda text, **k: None)
+        assert scrape_jobs.detect_language("Wir suchen einen Leiter im Bereich Entwicklung.") == "de"
+
+
+# ---------------------------------------------------------------------------
+# Reliable language tags: _normalize_lang_tag / _language_tag_from_html
+# ---------------------------------------------------------------------------
+
+class TestLanguageTags:
+    @pytest.mark.parametrize("raw,expected", [
+        ("de", "de"), ("de-DE", "de"), ("de_AT", "de"), ("German", "de"),
+        ("Deutsch", "de"), ("en", "en"), ("en-GB", "en"), ("English", "en"),
+        ("fr-FR", "fr"), ("Italian", "it"), ("es", "es"),
+        ("", None), (None, None), ("!!", None), ("xyzzy", None),
+    ])
+    def test_normalize_lang_tag(self, raw, expected):
+        assert scrape_jobs._normalize_lang_tag(raw) == expected
+
+    def test_tag_from_jsonld_inlanguage(self):
+        html = (
+            '<html lang="en"><script type="application/ld+json">'
+            '{"@type":"JobPosting","title":"X","inLanguage":"de-DE"}'
+            '</script></html>'
+        )
+        # JSON-LD inLanguage is per-posting → wins over the page <html lang>.
+        assert scrape_jobs._language_tag_from_html(html) == "de"
+
+    def test_tag_from_html_lang_attribute(self):
+        assert scrape_jobs._language_tag_from_html('<html lang="de-AT"></html>') == "de"
+
+    def test_tag_from_meta_content_language(self):
+        html = '<html><head><meta http-equiv="content-language" content="fr"></head></html>'
+        assert scrape_jobs._language_tag_from_html(html) == "fr"
+
+    def test_no_tag_returns_none(self):
+        assert scrape_jobs._language_tag_from_html("<html><body>hi</body></html>") is None
+
+
+# ---------------------------------------------------------------------------
+# detect_job_language — title prose never decides the language
+# ---------------------------------------------------------------------------
+
+class TestDetectJobLanguage:
+    def test_explicit_tag_wins(self):
+        assert scrape_jobs.detect_job_language(tag="de-DE", body="totally english body text here") == "de"
+
+    def test_html_tag_used_when_no_explicit_tag(self):
+        assert scrape_jobs.detect_job_language(html='<html lang="fr"></html>') == "fr"
+
+    def test_body_detection_when_no_tag(self):
+        body = "Wir suchen einen erfahrenen Leiter für unser Unternehmen im Bereich Entwicklung."
+        assert scrape_jobs.detect_job_language(body=body, allow_fetch=False) == "de"
+
+    def test_title_prose_alone_is_not_used(self):
+        # English title, no body/tag, no fetch → unknown, NOT 'en'.
+        assert scrape_jobs.detect_job_language(markers_text="Chief Technology Officer", allow_fetch=False) == ""
+
+    def test_title_marker_counts(self):
+        # (m/w/d) in the title is a structural locale marker → 'de'.
+        assert scrape_jobs.detect_job_language(markers_text="Cloud Architect (m/w/d)", allow_fetch=False) == "de"
+
+    def test_fetch_used_as_last_resort(self, monkeypatch):
         monkeypatch.setattr(scrape_jobs, "_fetch_job_page_language", lambda url: "en")
-        assert scrape_jobs._german_market_lang_hint("Chief Technology Officer", "https://karriere.at/jobs/3") == "en"
+        assert scrape_jobs.detect_job_language(url="https://x.co/job/1") == "en"
 
-    def test_english_title_falls_back_to_de_when_probe_returns_none(self, monkeypatch):
+    def test_market_default_when_all_else_fails(self, monkeypatch):
+        monkeypatch.setattr(scrape_jobs, "_fetch_job_page_language", lambda url: None)
+        assert scrape_jobs.detect_job_language(url="https://x.co/job/1", market_default="de") == "de"
+
+
+# ---------------------------------------------------------------------------
+# _market_lang_hint (card boards — title prose ignored; tag/body or default)
+# ---------------------------------------------------------------------------
+
+class TestMarketLangHint:
+    def test_german_market_title_prose_is_ignored(self, monkeypatch):
+        # A German-looking title alone must NOT decide the language; with a
+        # German-market host and no fetch result, we lean on the market default.
         monkeypatch.setenv("SCRAPER_PAGE_LANG_ENRICH", "true")
         monkeypatch.setattr(scrape_jobs, "_fetch_job_page_language", lambda url: None)
-        assert scrape_jobs._german_market_lang_hint("Chief Technology Officer", "https://karriere.at/jobs/4") == "de"
+        assert scrape_jobs._market_lang_hint("https://karriere.at/jobs/1", "karriere_at", "Leiter Entwicklung") == "de"
+
+    def test_audience_marker_in_title_returns_de_without_fetch(self, monkeypatch):
+        # (m/w/d) is a structural locale marker, not title prose → 'de', no fetch.
+        def _boom(url):  # pragma: no cover - must not be called
+            raise AssertionError("page fetch should not happen when a marker is present")
+
+        monkeypatch.setattr(scrape_jobs, "_fetch_job_page_language", _boom)
+        assert scrape_jobs._market_lang_hint("https://karriere.at/jobs/2", "karriere_at", "Cloud Architect (m/w/d)") == "de"
+
+    def test_defaults_de_when_enrichment_disabled(self, monkeypatch):
+        monkeypatch.setenv("SCRAPER_PAGE_LANG_ENRICH", "false")
+        assert scrape_jobs._market_lang_hint("https://karriere.at/jobs/3", "karriere_at", "Chief Technology Officer") == "de"
+
+    def test_uses_page_language_when_enabled(self, monkeypatch):
+        monkeypatch.setenv("SCRAPER_PAGE_LANG_ENRICH", "true")
+        monkeypatch.setattr(scrape_jobs, "_fetch_job_page_language", lambda url: "en")
+        assert scrape_jobs._market_lang_hint("https://karriere.at/jobs/4", "karriere_at", "Chief Technology Officer") == "en"
+
+    def test_neutral_host_is_unknown_when_probe_returns_none(self, monkeypatch):
+        # jobs.ch is multilingual → no safe default; unknown ('') beats a guess.
+        monkeypatch.setenv("SCRAPER_PAGE_LANG_ENRICH", "true")
+        monkeypatch.setattr(scrape_jobs, "_fetch_job_page_language", lambda url: None)
+        assert scrape_jobs._market_lang_hint("https://www.jobs.ch/en/vacancies/5", "jobs_ch", "Chief Technology Officer") == ""
 
 
 # ---------------------------------------------------------------------------
@@ -141,17 +303,19 @@ class TestSerpLangHint:
         assert lang == "de"
 
     def test_disabled_enrichment_keeps_en_on_neutral_host(self, monkeypatch):
+        # Neutral host, no substantial body, enrichment off → unknown (''), not a
+        # title-prose guess. The AI pre-rank step fills it later.
         monkeypatch.setenv("SCRAPER_PAGE_LANG_ENRICH", "false")
         lang = scrape_jobs._serp_lang_hint(
             "Engineering Manager", "Acme",
             "Join our team.",
             "https://www.jobs.ch/en/vacancies/12345",
         )
-        assert lang == "en"
+        assert lang == ""
 
     def test_enrichment_unavailable_keeps_en_on_neutral_host(self, monkeypatch):
-        # LinkedIn URL but enrichment returns None → keep the English guess
-        # (linkedin.com is not a German-market fallback host).
+        # LinkedIn URL but enrichment returns None → unknown ('') on a neutral
+        # host (linkedin.com is not a German-market fallback), not a title guess.
         monkeypatch.setenv("SCRAPER_PAGE_LANG_ENRICH", "true")
         monkeypatch.setattr(scrape_jobs, "_fetch_linkedin_job_language", lambda job_id: None)
         lang = scrape_jobs._serp_lang_hint(
@@ -159,7 +323,7 @@ class TestSerpLangHint:
             "Lead our platform team.",
             "https://www.linkedin.com/jobs/view/777/",
         )
-        assert lang == "en"
+        assert lang == ""
 
 
 # ---------------------------------------------------------------------------

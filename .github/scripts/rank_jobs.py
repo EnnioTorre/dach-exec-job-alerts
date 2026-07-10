@@ -15,6 +15,16 @@ from collections import defaultdict
 from datetime import date
 
 # ---------------------------------------------------------------------------
+# Language priority (0–5 scale, used by `language_score`)
+#   English → high (primary target audience)
+#   German  → medium (acceptable)
+#   rest    → low (any other language)
+# ---------------------------------------------------------------------------
+LANGUAGE_SCORE_HIGH = 5.0
+LANGUAGE_SCORE_MEDIUM = 3.0
+LANGUAGE_SCORE_LOW = 1.2
+
+# ---------------------------------------------------------------------------
 # Relevance filter
 # ---------------------------------------------------------------------------
 
@@ -500,16 +510,20 @@ def vienna_distance_score(location: str) -> float:
     return 1.8
 
 
-def language_score(language_hint: str, company: str) -> float:
-    lang = (language_hint or "").lower()
+def language_score(language_hint: str, company: str = "") -> float:
+    """
+    Score a posting by its language: English (target audience) ranks high,
+    German ranks medium, and any other language ("rest") ranks low.
+
+    ``company`` is accepted for backward compatibility but no longer affects
+    the score — the language policy is now a simple three-way mapping.
+    """
+    lang = (language_hint or "").strip().lower()
     if lang == "en":
-        return 5.0
+        return LANGUAGE_SCORE_HIGH
     if lang == "de":
-        # German-only is allowed, but clearly lower priority than English listings.
-        return 1.2
-    if "international" in company.lower():
-        return 3.8
-    return 2.8
+        return LANGUAGE_SCORE_MEDIUM
+    return LANGUAGE_SCORE_LOW
 
 
 def it_management_focus_score(title: str) -> float:
@@ -553,7 +567,7 @@ def it_management_focus_score(title: str) -> float:
 
 def score_job(job: dict) -> float:
     ls = vienna_distance_score(job.get("location", ""))
-    lang = language_score(job.get("language_hint", ""), job.get("company", ""))
+    lang = language_score(job.get("language_hint", ""))
     focus = it_management_focus_score(job.get("title", ""))
     # Weighted formula: distance from Vienna 35%, language 35%,
     # IT relevance 30%. (Salary was dropped: no active source populates it.)

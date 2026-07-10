@@ -182,17 +182,18 @@ class TestViennaDistanceScore:
 # ---------------------------------------------------------------------------
 
 class TestLanguageScore:
-    def test_english_scores_highest(self):
+    def test_english_scores_high(self):
         assert rank_jobs.language_score("en", "Acme") == 5.0
 
-    def test_german_scores_low(self):
-        assert rank_jobs.language_score("de", "Acme") == 1.2
+    def test_german_scores_medium(self):
+        assert rank_jobs.language_score("de", "Acme") == 3.0
 
-    def test_unknown_lang_with_international_company_gets_boost(self):
-        assert rank_jobs.language_score("", "Acme International GmbH") == 3.8
+    def test_other_language_scores_low(self):
+        assert rank_jobs.language_score("fr", "Acme") == 1.2
 
-    def test_unknown_lang_plain_company_is_neutral(self):
-        assert rank_jobs.language_score("", "Acme GmbH") == 2.8
+    def test_unknown_language_scores_low(self):
+        assert rank_jobs.language_score("", "Acme International GmbH") == 1.2
+        assert rank_jobs.language_score("", "Acme GmbH") == 1.2
 
 
 # ---------------------------------------------------------------------------

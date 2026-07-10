@@ -34,7 +34,7 @@ jobs:
           node-version: "20"
 
       - name: Install dependencies
-        run: pip install --quiet requests beautifulsoup4 openai
+        run: pip install --quiet requests beautifulsoup4 openai langdetect
 
       # ------------------------------------------------------------------
       # Setup: Configure CA certificates from system for SSL verification
