@@ -562,7 +562,11 @@ def _load_geocode_cache() -> None:
         with open(path, encoding="utf-8") as f:
             raw = json.load(f)
         for k, v in raw.items():
-            _GEOCODE_CACHE[k] = tuple(v) if isinstance(v, list) and len(v) == 2 else None
+            if (isinstance(v, list) and len(v) == 2
+                    and all(isinstance(x, (int, float)) for x in v)):
+                _GEOCODE_CACHE[k] = (float(v[0]), float(v[1]))
+            else:
+                _GEOCODE_CACHE[k] = None
     except (OSError, json.JSONDecodeError, ValueError, TypeError):
         pass
 

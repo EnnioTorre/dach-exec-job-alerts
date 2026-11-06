@@ -33,6 +33,17 @@ jobs:
         with:
           node-version: "20"
 
+      # Persist the Nominatim geocode cache across daily runs so repeated
+      # city lookups are reused (fewer requests, stable scores). restore-keys
+      # fetches the most recent prior cache; a unique key saves a fresh one.
+      - name: Restore geocode cache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/jobs/geocode_cache.json
+          key: geocode-cache-${{ github.run_id }}
+          restore-keys: |
+            geocode-cache-
+
       - name: Install dependencies
         run: pip install --quiet requests beautifulsoup4 openai langdetect
 

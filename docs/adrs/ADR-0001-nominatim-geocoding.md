@@ -35,8 +35,11 @@ server-side geocoding in the ranking stage, called with the project's existing `
   existing deterministic country constant. A geocoding outage can never fail the run.
 - **Usage policy & caching:** a descriptive `User-Agent` (with a contact URL) is sent per the OSMF
   Nominatim usage policy; requests are spaced ≥1 req/s; results (including misses) are cached in
-  `/tmp/jobs/geocode_cache.json` and reused across the run's rank/validation/re-rank passes to bound
-  the aggregate request rate and keep scores reproducible within a run.
+  `/tmp/jobs/geocode_cache.json`, reused across the run's rank/validation/re-rank passes, and
+  **restored across daily runs via GitHub Actions cache** so the mapping progressively warms. The
+  authoritative digest is the final re-rank pass; its scores are stable once the cache is warm. On a
+  cold cache the first run geocodes up to the per-run budget (`RANK_GEOCODE_MAX`) and scores any
+  remainder on the deterministic country constant until later passes/runs fill the cache.
 - **Rollout control:** geocoding is on by default and fully disableable via `RANK_GEOCODE=false`
   (instant rollback to pre-geocoding scoring); the per-run budget is `RANK_GEOCODE_MAX`.
 
@@ -46,11 +49,14 @@ server-side geocoding in the ranking stage, called with the project's existing `
 hand-maintained coordinate list; no new dependency or secret; graceful degradation preserves the
 pipeline's always-ships-a-digest guarantee.
 
-**Negative / trade-offs:** the ranking stage now has a network dependency, so cross-day
-reproducibility depends on the geocode cache and the external service; the project's "deterministic
-ranking" guideline is reconciled accordingly in `copilot-instructions.md` (deterministic *given the
-cache*, degrading to deterministic constants). The public Nominatim service has no SLA; if it is
-unreachable the digest silently reverts to coarser country-level scoring for affected rows.
+**Negative / trade-offs:** the ranking stage now has a network dependency, so scores are reproducible
+*given a warm geocode cache* (persisted across runs via Actions cache) and degrade deterministically
+to country constants when geocoding is unavailable. A cold cache, or a location that falls past the
+per-run budget in an early pass, may be scored on the country fallback until the cache warms — the
+final re-rank pass that builds the digest uses the most-filled cache. The public Nominatim service
+has no SLA; if it is unreachable the digest silently reverts to coarser country-level scoring for
+affected rows. The project's "deterministic ranking" guideline is read as *deterministic given the
+cache*, not independent of external state.
 
 ## References
 

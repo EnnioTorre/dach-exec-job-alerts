@@ -464,3 +464,45 @@ class TestGeocoding:
         )
         assert rank_jobs._geocode_query("Vienna") is None
 
+    # --- persistent cache (_load_geocode_cache / _save_geocode_cache) ---
+
+    def test_geocode_cache_round_trip_persists_hits_and_misses(self, monkeypatch, tmp_path):
+        path = tmp_path / "geo.json"
+        monkeypatch.setenv("RANK_GEOCODE_CACHE_PATH", str(path))
+        rank_jobs._GEOCODE_CACHE.clear()
+        rank_jobs._GEOCODE_CACHE["graz"] = (47.0707, 15.4395)
+        rank_jobs._GEOCODE_CACHE["nowhere"] = None          # negative cache entry
+        rank_jobs._save_geocode_cache()
+
+        rank_jobs._GEOCODE_CACHE.clear()
+        rank_jobs._load_geocode_cache()
+        assert rank_jobs._GEOCODE_CACHE["graz"] == (47.0707, 15.4395)
+        assert rank_jobs._GEOCODE_CACHE["nowhere"] is None  # miss survives the round-trip
+
+    def test_geocode_cache_load_tolerates_malformed_file(self, monkeypatch, tmp_path):
+        path = tmp_path / "geo.json"
+        path.write_text("{ not valid json")
+        monkeypatch.setenv("RANK_GEOCODE_CACHE_PATH", str(path))
+        rank_jobs._GEOCODE_CACHE.clear()
+        rank_jobs._load_geocode_cache()                     # must not raise
+        assert rank_jobs._GEOCODE_CACHE == {}
+
+    def test_geocode_cache_load_rejects_nonnumeric_coords(self, monkeypatch, tmp_path):
+        path = tmp_path / "geo.json"
+        path.write_text('{"bad": ["a", "b"], "good": [1.0, 2.0]}')
+        monkeypatch.setenv("RANK_GEOCODE_CACHE_PATH", str(path))
+        rank_jobs._GEOCODE_CACHE.clear()
+        rank_jobs._load_geocode_cache()
+        assert rank_jobs._GEOCODE_CACHE["bad"] is None      # non-numeric → dropped to None
+        assert rank_jobs._GEOCODE_CACHE["good"] == (1.0, 2.0)
+
+    def test_geocode_cache_empty_path_disables_disk_io(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("RANK_GEOCODE_CACHE_PATH", "")
+        rank_jobs._GEOCODE_CACHE.clear()
+        rank_jobs._GEOCODE_CACHE["graz"] = (47.0, 15.4)
+        rank_jobs._save_geocode_cache()                     # no-op when path is empty
+        assert not (tmp_path / "geo.json").exists()
+        rank_jobs._GEOCODE_CACHE.clear()
+        rank_jobs._load_geocode_cache()                     # no-op
+        assert rank_jobs._GEOCODE_CACHE == {}
+
