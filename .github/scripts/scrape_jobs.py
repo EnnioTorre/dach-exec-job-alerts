@@ -210,6 +210,13 @@ _linkedin_lang_enrich_used = 0
 _PAGE_LANG_CACHE: dict[str, str] = {}
 _page_lang_enrich_used = 0
 
+# Generic job-page location enrichment: when a row's location is country-only
+# (e.g. "Austria") or empty, we fetch the destination page and recover a
+# specific city/region so distance-from-Vienna ranking is meaningful. Bounded
+# per run and cached per URL.
+_PAGE_LOCATION_CACHE: dict[str, str] = {}
+_location_enrich_used = 0
+
 # High-signal function/marker words for the German-vs-English language detector
 # (_infer_language_hint). Kept small and high-precision to avoid false hits.
 _DE_FUNCTION_WORDS = {
@@ -1795,6 +1802,95 @@ def _fetch_job_page_language(url: str) -> str | None:
     return lang
 
 
+# Location strings that carry no specific place — only a country, a region-less
+# marker, or nothing. Rows with one of these are candidates for page-fetch
+# enrichment; rows carrying a real place (e.g. "Graz", "Wien, Österreich") are
+# left untouched so already-precise scoring never regresses.
+_GENERIC_LOCATIONS = {
+    "", "austria", "österreich", "osterreich", "germany", "deutschland",
+    "switzerland", "schweiz", "italy", "italia", "dach", "remote",
+    "remote (dach)", ".at", ".de", ".ch", ".it",
+}
+
+
+def _is_generic_location(location: str) -> bool:
+    """True when the location is empty or only a country/region-less marker."""
+    return (location or "").strip().lower() in _GENERIC_LOCATIONS
+
+
+def _fetch_job_page_location(url: str) -> str | None:
+    """
+    Fetch a destination job page and recover a specific location (city or
+    region) when the listing exposes only a country. Reads JSON-LD
+    ``JobPosting.jobLocation.address`` first (addressLocality, else
+    addressRegion), then a visible location element. Returns the string, or
+    None if unavailable. Cached per URL and capped per run
+    (SCRAPER_PAGE_LOCATION_ENRICH_MAX, default 40) to bound runtime and 429 risk.
+    """
+    if not url or not url.startswith("http"):
+        return None
+    if url in _PAGE_LOCATION_CACHE:
+        return _PAGE_LOCATION_CACHE[url] or None
+
+    global _location_enrich_used
+    cap = int(os.getenv("SCRAPER_PAGE_LOCATION_ENRICH_MAX", "40"))
+    if _location_enrich_used >= cap:
+        return None
+    _location_enrich_used += 1
+
+    html = fetch(url, retries=1)
+    if not html:
+        _PAGE_LOCATION_CACHE[url] = ""
+        return None
+
+    location = ""
+    for j in extract_jsonld_jobs(html):
+        loc = j.get("jobLocation")
+        if isinstance(loc, list):
+            loc = loc[0] if loc else None
+        if isinstance(loc, dict):
+            addr = loc.get("address", {})
+            if isinstance(addr, dict):
+                location = (addr.get("addressLocality") or addr.get("addressRegion") or "").strip()
+            elif isinstance(addr, str):
+                location = addr.strip()
+        if location:
+            break
+
+    if not location:
+        soup = BeautifulSoup(html, "html.parser")
+        el = (
+            soup.find(attrs={"data-at": re.compile(r"job-location|job-ad-location", re.I)})
+            or soup.find(class_=re.compile(r"location|ort|standort|place", re.I))
+        )
+        location = _text(el)
+
+    # A recovered value that is itself only a country adds nothing — drop it.
+    if _is_generic_location(location):
+        location = ""
+
+    _PAGE_LOCATION_CACHE[url] = location
+    return location or None
+
+
+def _enrich_locations(jobs: list[dict]) -> None:
+    """
+    In-place: for rows whose location is country-only or empty, fetch the
+    destination page once (within the per-run budget) to recover a specific
+    city/region. Skipped entirely when SCRAPER_PAGE_LOCATION_ENRICH is falsy.
+    Rows that already carry a specific place are left untouched.
+    """
+    if os.getenv("SCRAPER_PAGE_LOCATION_ENRICH", "true").lower() not in {"1", "true", "yes"}:
+        return
+    for j in jobs:
+        if not _is_generic_location(j.get("location", "")):
+            continue
+        url = (j.get("application_url") or j.get("source_url") or "").strip()
+        recovered = _fetch_job_page_location(url)
+        if recovered:
+            j["location"] = recovered
+
+
 def _market_lang_hint(url: str, source_name: str = "", title: str = "") -> str:
     """
     Language for a job-board *card* (Stepstone, karriere.at, jobs.ch) where the
@@ -1874,6 +1970,7 @@ def parse_karriere_at(html: str, source_name: str) -> list[dict]:
     for card in cards:
         title_el = card.find(["h2", "h3", "h1"])
         company_el = card.find(class_=re.compile(r"company|employer|firm", re.I))
+        location_el = card.find(class_=re.compile(r"location|ort|standort|place", re.I))
         link_el = card.find("a", href=True)
         if not title_el:
             continue
@@ -1883,7 +1980,7 @@ def parse_karriere_at(html: str, source_name: str) -> list[dict]:
         jobs.append({
             "title": _text(title_el),
             "company": _text(company_el),
-            "location": "Austria",
+            "location": _text(location_el) or "Austria",
             "source_name": source_name,
             "source_url": href,
             "application_url": href,
@@ -2297,6 +2394,9 @@ def main() -> None:
     # distinct copies of the same role while local duplicates are collapsed.
     all_jobs = _dedup_by_source_family(all_jobs)
     print(f"After raw dedup: {len(all_jobs)} unique jobs")
+
+    # Recover a specific city/region for country-only rows (bounded, cached).
+    _enrich_locations(all_jobs)
 
     # Authoritative per-source usefulness: how many de-duplicated jobs each
     # source contributed to the full pool (computed BEFORE the [:200] downstream
