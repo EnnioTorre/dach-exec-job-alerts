@@ -132,6 +132,10 @@ jobs:
         run: python .github/scripts/test_scraper_loop.py
         env:
           SCRAPER_FAIL_ON_FETCH_ERROR: "false"
+          # Geocoding config for the rank subprocesses the loop spawns; the
+          # persisted cache (geocode_cache.json) is reused across passes.
+          RANK_GEOCODE_MAX: "60"
+          RANK_GEOCODE_USER_AGENT: "dach-exec-job-alerts/1.0 (+https://github.com/${{ github.repository }})"
           TEST_ATTEMPTS: "3"
           TEST_MIN_RAW: "10"
           TEST_MIN_RANKED: "10"

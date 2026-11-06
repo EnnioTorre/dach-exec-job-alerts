@@ -22,9 +22,19 @@ def _geocoding_off_by_default(monkeypatch):
     # The ranking tests assert the offline table/fallback behaviour; keep them
     # hermetic. Geocoding tests re-enable it and stub the network explicitly.
     monkeypatch.setenv("RANK_GEOCODE", "false")
+    monkeypatch.setenv("RANK_GEOCODE_CACHE_PATH", "")  # never touch disk in tests
     monkeypatch.setattr(rank_jobs, "_geocode_used", 0)
     monkeypatch.setattr(rank_jobs, "_last_geocode_ts", 0.0)
     rank_jobs._GEOCODE_CACHE.clear()
+
+
+class _FakeResp:
+    def __init__(self, status, payload):
+        self.status_code = status
+        self._payload = payload
+
+    def json(self):
+        return self._payload
 
 
 # ---------------------------------------------------------------------------
@@ -374,6 +384,7 @@ class TestGeocoding:
         monkeypatch.setattr(rank_jobs, "_geocode", lambda loc: coords[loc.strip().lower()])
         near = rank_jobs.vienna_distance_score("NearCity")
         far = rank_jobs.vienna_distance_score("FarCity")
+        assert near == 5.0 and far == 2.8   # 0 km vs ~524 km
         assert near > far
 
     def test_region_only_uses_region_coords_over_country_fallback(self, monkeypatch):
@@ -421,4 +432,35 @@ class TestGeocoding:
         monkeypatch.setenv("RANK_GEOCODE", "false")
         # A would-be-geocoded city falls back exactly as today: unknown → 2.4.
         assert rank_jobs.vienna_distance_score("Bregenz") == 2.4
+
+    # --- live Nominatim HTTP path (_geocode_query) with mocked requests ---
+
+    def test_geocode_query_success_parses_lat_lon(self, monkeypatch):
+        monkeypatch.setattr(
+            rank_jobs.requests, "get",
+            lambda *a, **k: _FakeResp(200, [{"lat": "48.2082", "lon": "16.3738"}]),
+        )
+        assert rank_jobs._geocode_query("Vienna") == (48.2082, 16.3738)
+
+    def test_geocode_query_non_200_returns_none(self, monkeypatch):
+        monkeypatch.setattr(rank_jobs.requests, "get", lambda *a, **k: _FakeResp(500, []))
+        assert rank_jobs._geocode_query("Vienna") is None
+
+    def test_geocode_query_empty_result_returns_none(self, monkeypatch):
+        monkeypatch.setattr(rank_jobs.requests, "get", lambda *a, **k: _FakeResp(200, []))
+        assert rank_jobs._geocode_query("Nowhere") is None
+
+    def test_geocode_query_request_exception_returns_none(self, monkeypatch):
+        def _raise(*a, **k):
+            raise rank_jobs.requests.RequestException("boom")
+
+        monkeypatch.setattr(rank_jobs.requests, "get", _raise)
+        assert rank_jobs._geocode_query("Vienna") is None
+
+    def test_geocode_query_malformed_payload_returns_none(self, monkeypatch):
+        monkeypatch.setattr(
+            rank_jobs.requests, "get",
+            lambda *a, **k: _FakeResp(200, [{"lat": "not-a-number", "lon": "x"}]),
+        )
+        assert rank_jobs._geocode_query("Vienna") is None
 

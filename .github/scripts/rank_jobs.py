@@ -515,7 +515,7 @@ def _geocode_query(location: str) -> tuple[float, float] | None:
         if not isinstance(data, list) or not data:
             return None
         return (float(data[0]["lat"]), float(data[0]["lon"]))
-    except Exception as exc:
+    except (requests.RequestException, ValueError, KeyError, IndexError, TypeError) as exc:
         print(f"  geocode failed for {location!r}: {exc}")
         return None
 
@@ -544,6 +544,40 @@ def _geocode(location: str) -> tuple[float, float] | None:
     coords = _geocode_query(location)
     _GEOCODE_CACHE[key] = coords
     return coords
+
+
+def _geocode_cache_path() -> str:
+    return os.getenv("RANK_GEOCODE_CACHE_PATH", "/tmp/jobs/geocode_cache.json")
+
+
+def _load_geocode_cache() -> None:
+    """Load the persisted geocode cache so the validation loop and re-rank reuse
+    coordinates instead of re-querying Nominatim — this keeps scores consistent
+    across passes, bounds the aggregate request rate, and removes the
+    order-dependence of per-process budget truncation."""
+    path = _geocode_cache_path()
+    if not path:
+        return
+    try:
+        with open(path, encoding="utf-8") as f:
+            raw = json.load(f)
+        for k, v in raw.items():
+            _GEOCODE_CACHE[k] = tuple(v) if isinstance(v, list) and len(v) == 2 else None
+    except (OSError, json.JSONDecodeError, ValueError, TypeError):
+        pass
+
+
+def _save_geocode_cache() -> None:
+    path = _geocode_cache_path()
+    if not path:
+        return
+    try:
+        serializable = {k: list(v) if v else None for k, v in _GEOCODE_CACHE.items()}
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(serializable, f)
+    except OSError:
+        pass
 
 
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -693,6 +727,8 @@ def main() -> None:
     # If AI pre-rank enrichment was applied, keep those corrected fields in the ranking input.
     ai_pre_rank = bool(data.get("ai_pre_rank_enriched", False))
     target_rank_count = int(os.getenv("RANK_TARGET_COUNT", "20"))
+    # Reuse geocoded coordinates persisted by earlier passes in this run.
+    _load_geocode_cache()
     print(f"Input: {len(jobs)} raw jobs (from {in_path})")
     if ai_pre_rank:
         print(f"AI pre-rank updates: {data.get('ai_pre_rank_updates', 0)}")
@@ -816,6 +852,7 @@ def main() -> None:
     out_path = "/tmp/jobs/jobs_ranked.json"
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(output, f, indent=2, ensure_ascii=False)
+    _save_geocode_cache()
     print(f"Wrote {out_path}")
 
 
