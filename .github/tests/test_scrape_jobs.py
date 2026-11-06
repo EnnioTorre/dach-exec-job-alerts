@@ -623,3 +623,84 @@ class TestParseJsonJobsLanguage:
         jobs = scrape_jobs.parse_json_jobs(feed, "arbeitnow_dach")
         assert jobs[0]["language_hint"] == "de"
 
+
+# ---------------------------------------------------------------------------
+# parse_karriere_at — card city extraction (replaces hardcoded "Austria")
+# ---------------------------------------------------------------------------
+
+class TestParseKarriereAtLocation:
+    # SCRAPER_PAGE_LANG_ENRICH is disabled so _market_lang_hint never fetches.
+    def test_parse_karriere_at_uses_card_city_when_present(self, monkeypatch):
+        monkeypatch.setenv("SCRAPER_PAGE_LANG_ENRICH", "false")
+        html = """
+        <div class="m-jobsListItem">
+          <h2>Head of Engineering</h2>
+          <span class="company">Acme</span>
+          <span class="location">Graz</span>
+          <a href="/jobs/123">view</a>
+        </div>
+        """
+        jobs = scrape_jobs.parse_karriere_at(html, "karriere_at_cto")
+        assert len(jobs) == 1
+        assert jobs[0]["location"] == "Graz"
+
+    def test_parse_karriere_at_falls_back_to_austria_when_no_city(self, monkeypatch):
+        monkeypatch.setenv("SCRAPER_PAGE_LANG_ENRICH", "false")
+        html = """
+        <div class="m-jobsListItem">
+          <h2>Head of Engineering</h2>
+          <span class="company">Acme</span>
+          <a href="/jobs/123">view</a>
+        </div>
+        """
+        jobs = scrape_jobs.parse_karriere_at(html, "karriere_at_cto")
+        assert len(jobs) == 1
+        assert jobs[0]["location"] == "Austria"
+
+
+# ---------------------------------------------------------------------------
+# Location enrichment — recover a city/region for country-only rows
+# ---------------------------------------------------------------------------
+
+class TestLocationEnrichment:
+    def test_location_enrichment_recovers_city_for_country_only_row(self, monkeypatch):
+        monkeypatch.setenv("SCRAPER_PAGE_LOCATION_ENRICH", "true")
+        monkeypatch.setattr(scrape_jobs, "_fetch_job_page_location", lambda url: "Linz")
+        jobs = [
+            {"location": "Austria", "application_url": "https://www.karriere.at/jobs/1"},
+            {"location": "Graz", "application_url": "https://www.karriere.at/jobs/2"},
+        ]
+        scrape_jobs._enrich_locations(jobs)
+        assert jobs[0]["location"] == "Linz"   # generic row recovered
+        assert jobs[1]["location"] == "Graz"   # specific row left untouched
+
+    def test_location_enrichment_respects_per_run_budget(self, monkeypatch):
+        monkeypatch.setenv("SCRAPER_PAGE_LOCATION_ENRICH_MAX", "1")
+        monkeypatch.setattr(scrape_jobs, "_location_enrich_used", 0)
+        scrape_jobs._PAGE_LOCATION_CACHE.clear()
+        calls: list[str] = []
+
+        def fake_fetch(url, retries=1):
+            calls.append(url)
+            return (
+                '<script type="application/ld+json">'
+                '{"@type":"JobPosting","jobLocation":{"address":{"addressLocality":"Linz"}}}'
+                "</script>"
+            )
+
+        monkeypatch.setattr(scrape_jobs, "fetch", fake_fetch)
+        first = scrape_jobs._fetch_job_page_location("https://example.test/1")
+        second = scrape_jobs._fetch_job_page_location("https://example.test/2")
+        assert first == "Linz"
+        assert second is None          # budget exhausted after one fetch
+        assert calls == ["https://example.test/1"]
+
+    def test_location_enrichment_returns_none_on_fetch_failure(self, monkeypatch):
+        monkeypatch.setattr(scrape_jobs, "_location_enrich_used", 0)
+        scrape_jobs._PAGE_LOCATION_CACHE.clear()
+        monkeypatch.setattr(scrape_jobs, "fetch", lambda url, retries=1: None)
+        assert scrape_jobs._fetch_job_page_location("https://www.karriere.at/x") is None
+        jobs = [{"location": "Austria", "application_url": "https://www.karriere.at/x"}]
+        scrape_jobs._enrich_locations(jobs)
+        assert jobs[0]["location"] == "Austria"   # unchanged, no exception
+
