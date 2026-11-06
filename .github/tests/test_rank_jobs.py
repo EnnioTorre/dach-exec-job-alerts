@@ -17,6 +17,16 @@ import pytest
 import rank_jobs
 
 
+@pytest.fixture(autouse=True)
+def _geocoding_off_by_default(monkeypatch):
+    # The ranking tests assert the offline table/fallback behaviour; keep them
+    # hermetic. Geocoding tests re-enable it and stub the network explicitly.
+    monkeypatch.setenv("RANK_GEOCODE", "false")
+    monkeypatch.setattr(rank_jobs, "_geocode_used", 0)
+    monkeypatch.setattr(rank_jobs, "_last_geocode_ts", 0.0)
+    rank_jobs._GEOCODE_CACHE.clear()
+
+
 # ---------------------------------------------------------------------------
 # is_relevant
 # ---------------------------------------------------------------------------
@@ -340,4 +350,75 @@ class TestHardRejectCommon:
 
     def test_clean_job_is_not_rejected(self):
         assert rank_jobs._hard_reject_common("head of engineering", "https://acme.io/jobs/1", "", "") is False
+
+
+# ---------------------------------------------------------------------------
+# Geocoding (Nominatim) — arbitrary locations → Vienna-distance score
+# ---------------------------------------------------------------------------
+
+class TestGeocoding:
+    def test_known_city_still_scores_from_table_without_geocoding(self, monkeypatch):
+        def _boom(loc):
+            raise AssertionError("geocode must not be called for a table city")
+
+        monkeypatch.setattr(rank_jobs, "_geocode", _boom)
+        assert rank_jobs.vienna_distance_score("Graz") == 4.2
+
+    def test_arbitrary_city_geocoded_to_distance_bucket(self, monkeypatch):
+        # Bregenz is not in the table; stub Vienna's own coords → 0 km → 5.0.
+        monkeypatch.setattr(rank_jobs, "_geocode", lambda loc: (48.2082, 16.3738))
+        assert rank_jobs.vienna_distance_score("Bregenz") == 5.0
+
+    def test_two_cities_same_country_score_by_distance(self, monkeypatch):
+        coords = {"nearcity": (48.2082, 16.3738), "farcity": (52.5200, 13.4050)}  # Vienna vs Berlin
+        monkeypatch.setattr(rank_jobs, "_geocode", lambda loc: coords[loc.strip().lower()])
+        near = rank_jobs.vienna_distance_score("NearCity")
+        far = rank_jobs.vienna_distance_score("FarCity")
+        assert near > far
+
+    def test_region_only_uses_region_coords_over_country_fallback(self, monkeypatch):
+        # "Lower Austria" geocodes ~60 km from Vienna (St. Pölten) → bucket 4.7,
+        # distinct from the Austria country fallback (280 km → 3.5).
+        monkeypatch.setattr(rank_jobs, "_geocode", lambda loc: (48.2000, 15.6250))
+        assert rank_jobs.vienna_distance_score("Lower Austria") == 4.7
+
+    def test_geocode_failure_falls_back_to_country_distance(self, monkeypatch):
+        monkeypatch.setattr(rank_jobs, "_geocode", lambda loc: None)
+        # Not bare, geocode fails → Austria hint → 280 km → 3.5.
+        assert rank_jobs.vienna_distance_score("Hintertupfing, Austria") == 3.5
+
+    def test_geocode_result_cached_second_call_not_refetched(self, monkeypatch):
+        monkeypatch.setenv("RANK_GEOCODE", "true")
+        calls: list[str] = []
+
+        def fake_query(loc):
+            calls.append(loc)
+            return (48.0, 16.0)
+
+        monkeypatch.setattr(rank_jobs, "_geocode_query", fake_query)
+        a = rank_jobs._geocode("Somewhere")
+        b = rank_jobs._geocode("Somewhere")
+        assert a == b == (48.0, 16.0)
+        assert len(calls) == 1          # second call served from cache
+
+    def test_geocode_respects_per_run_budget(self, monkeypatch):
+        monkeypatch.setenv("RANK_GEOCODE", "true")
+        monkeypatch.setenv("RANK_GEOCODE_MAX", "1")
+        calls: list[str] = []
+
+        def fake_query(loc):
+            calls.append(loc)
+            return (48.0, 16.0)
+
+        monkeypatch.setattr(rank_jobs, "_geocode_query", fake_query)
+        first = rank_jobs._geocode("CityA")
+        second = rank_jobs._geocode("CityB")
+        assert first == (48.0, 16.0)
+        assert second is None           # budget exhausted after one query
+        assert calls == ["CityA"]
+
+    def test_geocoding_disabled_preserves_current_scores(self, monkeypatch):
+        monkeypatch.setenv("RANK_GEOCODE", "false")
+        # A would-be-geocoded city falls back exactly as today: unknown → 2.4.
+        assert rank_jobs.vienna_distance_score("Bregenz") == 2.4
 

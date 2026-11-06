@@ -9,10 +9,13 @@ import json
 import os
 import re
 import math
+import time
 from pathlib import Path
 from urllib.parse import urlparse
 from collections import defaultdict
 from datetime import date
+
+import requests
 
 # ---------------------------------------------------------------------------
 # Language priority (0–5 scale, used by `language_score`)
@@ -458,6 +461,91 @@ _GERMANY_HINTS = ["germany", "deutschland", ".de"]
 _SWITZERLAND_HINTS = ["switzerland", "schweiz", ".ch"]
 _ITALY_HINTS = ["italy", "italia", "south tyrol", "südtirol", "alto adige", ".it"]
 
+# Bare location strings — only a country/region-less marker. These keep the
+# country/dach fallback and are never geocoded (saves calls and preserves the
+# existing fallback semantics).
+_BARE_LOCATIONS = {
+    "", "austria", "österreich", "osterreich", "germany", "deutschland",
+    "switzerland", "schweiz", "italy", "italia", "dach", "remote",
+    "remote (dach)", "at", "de", "ch", "it", ".at", ".de", ".ch", ".it",
+}
+
+
+def _is_bare_country_location(location: str) -> bool:
+    """True when the location carries no specific place (country/marker only)."""
+    return (location or "").strip().lower() in _BARE_LOCATIONS
+
+
+# Geocoding resolves a specific city/region string to coordinates via
+# OpenStreetMap Nominatim so distance-from-Vienna reflects true proximity. On by
+# default; set RANK_GEOCODE=false to disable (exact pre-geocoding behaviour).
+# Bounded per run, cached per location, spaced to honour the OSM usage policy
+# (<=1 req/s), and fully degrading — any failure returns None.
+_NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
+_DEFAULT_GEOCODE_UA = (
+    "dach-exec-job-alerts/1.0 (+https://github.com/EnnioTorre/dach-exec-job-alerts)"
+)
+_GEOCODE_CACHE: dict[str, tuple[float, float] | None] = {}
+_geocode_used = 0
+_last_geocode_ts = 0.0
+
+
+def _geocoding_enabled() -> bool:
+    return os.getenv("RANK_GEOCODE", "true").strip().lower() not in {"0", "false", "no"}
+
+
+def _geocode_query(location: str) -> tuple[float, float] | None:
+    """One Nominatim lookup. Returns (lat, lon), or None on any failure."""
+    try:
+        resp = requests.get(
+            _NOMINATIM_URL,
+            params={
+                "q": location,
+                "format": "json",
+                "limit": 1,
+                "countrycodes": "at,de,ch,it",
+                "accept-language": "de",
+            },
+            headers={"User-Agent": os.getenv("RANK_GEOCODE_USER_AGENT", _DEFAULT_GEOCODE_UA)},
+            timeout=(3.05, 10),
+        )
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
+        if not isinstance(data, list) or not data:
+            return None
+        return (float(data[0]["lat"]), float(data[0]["lon"]))
+    except Exception as exc:
+        print(f"  geocode failed for {location!r}: {exc}")
+        return None
+
+
+def _geocode(location: str) -> tuple[float, float] | None:
+    """Cached, budgeted, rate-limited geocoding. None when disabled/exhausted/failed."""
+    key = (location or "").strip().lower()
+    if not key:
+        return None
+    if key in _GEOCODE_CACHE:
+        return _GEOCODE_CACHE[key]
+    if not _geocoding_enabled():
+        return None
+
+    global _geocode_used, _last_geocode_ts
+    if _geocode_used >= int(os.getenv("RANK_GEOCODE_MAX", "50")):
+        return None
+
+    # Honour Nominatim's <=1 req/s usage policy.
+    elapsed = time.monotonic() - _last_geocode_ts
+    if elapsed < 1.0:
+        time.sleep(1.0 - elapsed)
+
+    _geocode_used += 1
+    _last_geocode_ts = time.monotonic()
+    coords = _geocode_query(location)
+    _GEOCODE_CACHE[key] = coords
+    return coords
+
+
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     r = 6371.0
     p1 = math.radians(lat1)
@@ -477,6 +565,13 @@ def _distance_from_vienna_km(location: str) -> float | None:
     for token, (lat, lon) in _DACH_LOCATION_POINTS.items():
         if token in loc:
             return _haversine_km(vienna[0], vienna[1], lat, lon)
+
+    # Geocode a specific (non-bare) string to real coordinates before falling
+    # back to the coarse country constant.
+    if not _is_bare_country_location(loc):
+        coords = _geocode(location)
+        if coords:
+            return _haversine_km(vienna[0], vienna[1], coords[0], coords[1])
 
     if "remote" in loc or "dach" in loc:
         return _COUNTRY_DISTANCE_FALLBACK["dach"]

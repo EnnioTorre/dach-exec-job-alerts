@@ -118,7 +118,11 @@ jobs:
       # ------------------------------------------------------------------
       - name: Rank jobs
         run: python .github/scripts/rank_jobs.py
-
+        env:
+          # Geocoding is on by default; cap calls and set a descriptive
+          # User-Agent per the OSM Nominatim usage policy.
+          RANK_GEOCODE_MAX: "60"
+          RANK_GEOCODE_USER_AGENT: "dach-exec-job-alerts/1.0 (+https://github.com/${{ github.repository }})"
       # ------------------------------------------------------------------
       # Stage 2b: live validation loop (scrape+rank retries)
       #   Re-runs the deterministic pipeline a few times and validates
@@ -205,6 +209,9 @@ jobs:
       - name: Re-rank after second pass
         run: python .github/scripts/rank_jobs.py
         continue-on-error: true
+        env:
+          RANK_GEOCODE_MAX: "60"
+          RANK_GEOCODE_USER_AGENT: "dach-exec-job-alerts/1.0 (+https://github.com/${{ github.repository }})"
 
       # ------------------------------------------------------------------
       # Stage 4: optional AI enrichment via GitHub Models REST API
