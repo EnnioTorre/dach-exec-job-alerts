@@ -3,7 +3,7 @@ id: evidence-geocode-vienna-distance
 spec: ./spec.md
 status: pass
 created: 2026-11-06
-revision: f0722ed6f8572ae5cb7bc5195caaf66078a6c2a5
+revision: ab4244b6714e82a32f05532e5c68de11d9f09f11
 ---
 
 # Evidence Pack: Geocode arbitrary locations into the Vienna-distance score
@@ -18,7 +18,7 @@ revision: f0722ed6f8572ae5cb7bc5195caaf66078a6c2a5
 |-------|------|--------|--------|
 | Build / compile | `python3 py_compile` | pass | `rank_jobs.py` compiles clean |
 | Workflow YAML | `yaml.safe_load` | pass | `dach-exec-job-alerts.yml` parses after the env edits |
-| Tests | `pytest` | pass | 238 passed, 0 failed, 0 skipped (225 prior + 13 geocoding) |
+| Tests | `pytest` | pass | 242 passed, 0 failed, 0 skipped (225 prior + 17 geocoding) |
 
 New tests (all `CT / Functional`), run explicitly and green via `pytest …::TestGeocoding`:
 - `test_known_city_still_scores_from_table_without_geocoding` → BAC-6
@@ -46,12 +46,20 @@ hermetic by the module autouse fixture (geocoding disabled) plus the bare-countr
 
 ## Review follow-up (PR #110)
 
-Review warnings addressed in revision `f0722ed`:
-- Order-bias / wall-clock / reproducibility → geocode cache persisted to `/tmp/jobs/geocode_cache.json`, loaded/saved in `main()` and reused across the validation-loop and re-rank passes.
-- `_geocode_query` live path now covered by 5 mocked-HTTP tests; exceptions narrowed.
-- Determinism guideline reconciled in `copilot-instructions.md`; Nominatim documented in `docs/infrastructure.md`.
-- CIG project ADR authored: `docs/adrs/ADR-0001-nominatim-geocoding.md`.
-- Geocoding on-by-default is a conscious decision (user), documented in the ADR with `RANK_GEOCODE=false` rollback.
+Iteration-1 warnings addressed in `f0722ed`; iteration-2 warnings addressed in this revision:
+- **Scope creep un-bundled:** `copilot-instructions.md` and `docs/infrastructure.md` (earlier
+  docs-gen output) removed from this PR — only the geocoding-specific ADR remains.
+- **Cross-run cache now real:** `geocode_cache.json` is restored across daily runs via `actions/cache`
+  (not just uploaded as an artifact), so the persisted cache warms over time.
+- **Persistence tested:** `_load_geocode_cache`/`_save_geocode_cache` covered by 4 tests — hit/miss
+  round-trip, malformed-file tolerance, non-numeric-coord rejection, empty-path disable. This closes
+  the BAC-7 traceability gap (the reproducibility BAC is now backed by a test of the persisted path).
+- **Coord hardening:** `_load_geocode_cache` now rejects non-numeric coordinates (defence-in-depth).
+- **Docs corrected:** the ADR's reproducibility wording now matches the code (reproducible *given a
+  warm cache*; cold first run / budget-truncated early pass degrade to the deterministic fallback;
+  the final re-rank pass builds the digest).
+- `_geocode_query` live path covered by 5 mocked-HTTP tests; exceptions narrowed.
+- CIG project ADR: `docs/adrs/ADR-0001-nominatim-geocoding.md`.
 
 ## For the reviewer
 
