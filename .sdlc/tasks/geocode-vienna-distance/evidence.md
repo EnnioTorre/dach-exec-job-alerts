@@ -3,7 +3,7 @@ id: evidence-geocode-vienna-distance
 spec: ./spec.md
 status: pass
 created: 2026-11-06
-revision: 1f1135f79aa747cdabe4f68d9f7db8be897523e1
+revision: f0722ed6f8572ae5cb7bc5195caaf66078a6c2a5
 ---
 
 # Evidence Pack: Geocode arbitrary locations into the Vienna-distance score
@@ -18,7 +18,7 @@ revision: 1f1135f79aa747cdabe4f68d9f7db8be897523e1
 |-------|------|--------|--------|
 | Build / compile | `python3 py_compile` | pass | `rank_jobs.py` compiles clean |
 | Workflow YAML | `yaml.safe_load` | pass | `dach-exec-job-alerts.yml` parses after the env edits |
-| Tests | `pytest` | pass | 233 passed, 0 failed, 0 skipped (225 prior + 8 new) |
+| Tests | `pytest` | pass | 238 passed, 0 failed, 0 skipped (225 prior + 13 geocoding) |
 
 New tests (all `CT / Functional`), run explicitly and green via `pytest …::TestGeocoding`:
 - `test_known_city_still_scores_from_table_without_geocoding` → BAC-6
@@ -42,7 +42,16 @@ hermetic by the module autouse fixture (geocoding disabled) plus the bare-countr
 | Dependency CVE | No scan wired (`pip-audit`/Trivy absent); `requests` now imported by the ranker too | Nowhere — a CVE in `requests` ships |
 | Secret scan | No `gitleaks`/`detect-secrets` in repo | GitHub push protection may exist at the platform (unconfirmed) |
 | SAST | CI-only concern; no CodeQL/Semgrep in `.github/workflows/` | Nowhere — see `init` pipeline audit |
-| Live Nominatim path | Network call is stubbed in tests; the real HTTP request runs only in the scheduled workflow | First real workflow run (geocoding is on by default) |
+| Live Nominatim network call | The HTTP branches of `_geocode_query` are now covered via mocked `requests` (success/non-200/empty/error/malformed); only the real outbound request runs live | First real workflow run |
+
+## Review follow-up (PR #110)
+
+Review warnings addressed in revision `f0722ed`:
+- Order-bias / wall-clock / reproducibility → geocode cache persisted to `/tmp/jobs/geocode_cache.json`, loaded/saved in `main()` and reused across the validation-loop and re-rank passes.
+- `_geocode_query` live path now covered by 5 mocked-HTTP tests; exceptions narrowed.
+- Determinism guideline reconciled in `copilot-instructions.md`; Nominatim documented in `docs/infrastructure.md`.
+- CIG project ADR authored: `docs/adrs/ADR-0001-nominatim-geocoding.md`.
+- Geocoding on-by-default is a conscious decision (user), documented in the ADR with `RANK_GEOCODE=false` rollback.
 
 ## For the reviewer
 
