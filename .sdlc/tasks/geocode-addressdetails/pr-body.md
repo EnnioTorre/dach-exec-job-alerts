@@ -41,8 +41,8 @@ None.
 
 ## Review notes
 
-- **Stacked on PR #117** (Story 1): this branch is cut from `feat/locations-gazetteer-cleaner`, not
-  `main`, because both edit `locations.py`. Merge #117 first, then rebase/merge this.
+- **Was stacked on PR #117** (Story 1), now **merged** — this PR is rebased/retargeted onto `main`
+  and its diff is the Story-2 delta only.
 - **Dedicated budget knob** (`LOCATION_GEOCODE_MAX`, review fix): capping this stage no longer doubles
   the ranker's Nominatim volume; `RANK_GEOCODE` on/off + the User-Agent stay shared for operator parity.
 - `_geocode_address` + its persistence are unused until Story 3/4 import/wire them, so there is no
