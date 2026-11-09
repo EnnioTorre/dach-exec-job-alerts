@@ -1,17 +1,14 @@
 """
 Shared location primitives for the DACH job pipeline.
 
-Foundation for a standardized `place, region, country` location: a bundled DACH +
-South-Tyrol gazetteer, a raw-string cleaner (strips UI/junk text and rejects
-filter/facet lists), a Haversine helper, and an out-of-geography predicate. All
-pure and offline — geocoding and `normalize_location()` are added by later
-stories. See .sdlc/tasks/locations-gazetteer-cleaner/spec.md.
+Foundation for a standardized `place, region, country` location: a raw-string
+cleaner (strips UI/junk text and rejects filter/facet lists), a Haversine helper,
+and an out-of-geography predicate. All pure; region/country/coords are resolved
+by geocoding (Nominatim `addressdetails`) in a later story, not a bundled table.
+See .sdlc/tasks/locations-gazetteer-cleaner/spec.md.
 """
 
-import json
 import math
-import os
-from pathlib import Path
 
 # Em dash used for unknown location parts. Never matched as a place.
 PLACEHOLDER = "—"
@@ -37,41 +34,6 @@ _JUNK_PHRASES = (
 # accepted via its region (see _is_out_of_geo).
 _DACH_COUNTRIES = {"österreich", "deutschland", "schweiz"}
 _SOUTH_TYROL_REGION = "südtirol"
-
-# Cached per resolved path so a changed GAZETTEER_PATH reloads (and the
-# {}-on-error path stays reachable) rather than being pinned to the first load.
-_GAZETTEER_CACHE: dict[str, dict[str, dict]] = {}
-
-
-def _gazetteer_path() -> str:
-    return os.getenv(
-        "GAZETTEER_PATH",
-        str(Path(__file__).resolve().parent.parent / "config" / "dach_gazetteer.json"),
-    )
-
-
-def load_gazetteer() -> dict[str, dict]:
-    """
-    Load the DACH + South-Tyrol gazetteer: lowercased place -> {region, country,
-    lat, lon}. Cached per resolved path. Returns {} on any read/parse error
-    (never raises). Keys prefixed with '_' (e.g. the file's `_comment`) are
-    metadata and are skipped.
-    """
-    path = _gazetteer_path()
-    if path in _GAZETTEER_CACHE:
-        return _GAZETTEER_CACHE[path]
-    try:
-        with open(path, encoding="utf-8") as f:
-            raw = json.load(f)
-        gazetteer = {
-            k.strip().lower(): v
-            for k, v in raw.items()
-            if not k.startswith("_") and isinstance(v, dict)
-        }
-    except (OSError, json.JSONDecodeError, ValueError, TypeError):
-        gazetteer = {}
-    _GAZETTEER_CACHE[path] = gazetteer
-    return gazetteer
 
 
 def clean_location_parts(raw: str) -> list[str]:

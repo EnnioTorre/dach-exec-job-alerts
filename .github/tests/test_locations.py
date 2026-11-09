@@ -4,10 +4,9 @@ Unit tests for the shared location primitives in `locations.py`.
 Covers the Story 1 surface:
   - clean_location_parts: trailing-separator / empty-part handling, filter-list
     rejection, and UI/junk-token stripping (BAC-4)
-  - load_gazetteer: known place resolves to region/country/coords (BAC-6)
   - _is_out_of_geo: DACH + South Tyrol are in-geography, others are not (BAC-6)
 
-All functions are pure and offline, so no mocking is needed.
+All functions are pure, so no mocking is needed.
 """
 
 import locations
@@ -35,33 +34,6 @@ class TestCleanLocationParts:
         # so legitimate place/title text is never corrupted (reconciled BAC-4).
         assert locations.clean_location_parts("Engineering Jobs, Wien") == ["Engineering Jobs", "Wien"]
         assert locations.clean_location_parts("Suche, Graz") == ["Suche", "Graz"]
-
-
-class TestGazetteer:
-    def test_gazetteer_resolves_known_place_to_region_country_coords(self):
-        entry = locations.load_gazetteer()["graz"]
-        assert entry["region"] == "Steiermark"
-        assert entry["country"] == "Österreich"
-        assert entry["lat"] == 47.0707
-        assert entry["lon"] == 15.4395
-
-    def test_gazetteer_resolves_every_swiss_canton(self):
-        gaz = locations.load_gazetteer()
-        cantons = [
-            "zürich", "bern", "luzern", "uri", "schwyz", "obwalden", "nidwalden",
-            "glarus", "zug", "freiburg", "solothurn", "basel-stadt",
-            "basel-landschaft", "schaffhausen", "appenzell ausserrhoden",
-            "appenzell innerrhoden", "st. gallen", "graubünden", "aargau",
-            "thurgau", "tessin", "waadt", "wallis", "neuenburg", "genf", "jura",
-        ]
-        assert len(cantons) == 26
-        for canton in cantons:
-            assert canton in gaz, f"missing canton: {canton}"
-            assert gaz[canton]["country"] == "Schweiz"
-
-    def test_load_gazetteer_returns_empty_on_missing_file(self, monkeypatch):
-        monkeypatch.setenv("GAZETTEER_PATH", "/nonexistent/dach_gazetteer.json")
-        assert locations.load_gazetteer() == {}
 
 
 class TestIsOutOfGeo:
