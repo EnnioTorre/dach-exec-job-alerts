@@ -42,6 +42,11 @@ server-side geocoding in the ranking stage, called with the project's existing `
   remainder on the deterministic country constant until later passes/runs fill the cache.
 - **Rollout control:** geocoding is on by default and fully disableable via `RANK_GEOCODE=false`
   (instant rollback to pre-geocoding scoring); the per-run budget is `RANK_GEOCODE_MAX`.
+- **`addressdetails` extension (PRD `standardized-job-location`, Story 2):** the same Search endpoint is
+  also called with `addressdetails=1` by `locations._geocode_address` to read `address.state` /
+  `address.country` (region/country), under the identical policy — descriptive User-Agent, ≥1 req/s,
+  bounded by its own `LOCATION_GEOCODE_MAX` knob (falls back to `RANK_GEOCODE_MAX`), cached per place,
+  degrading to `None`. One extra request parameter; no new endpoint, service, dependency, or secret.
 
 ## Consequences
 
