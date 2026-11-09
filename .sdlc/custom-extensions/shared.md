@@ -55,3 +55,13 @@ the pattern that fits:
   never defer it to a later docs PR.
   *Why: a geocoding change made the ranker network-dependent; the "deterministic" claim was left
   unreconciled and the gap-critic flagged the doc/code mismatch across two review iterations — PR #110.*
+
+## External-resource budgets
+
+- **Each module/stage that calls a bounded external resource gets its own budget/rate-limit knob.**
+  When a new consumer reuses another module's env var (e.g. `RANK_GEOCODE_MAX` for Nominatim), a single
+  operator setting silently authorises N× the intended external-call volume. Give the new consumer its
+  own env knob (e.g. `LOCATION_GEOCODE_MAX`), falling back to the shared one, so each stage is capped
+  independently.
+  *Why: `locations._geocode_address` first reused `RANK_GEOCODE_MAX`, so `=50` authorised up to 100
+  Nominatim requests/run (50 rank + 50 locations) — flagged by the gap-critic on PR #120.*
