@@ -3,29 +3,34 @@ id: evidence-locations-gazetteer-cleaner
 spec: ./spec.md
 status: built
 created: 2026-11-09
-revision: 819a986
+revision: 4750184
 ---
 
 # Evidence: Locations module foundation — gazetteer, cleaner, geography predicate
 
 ## Verdict
 
-**Built.** Story 1 is implemented and verified. Three new files, zero existing files
-modified. Full test suite green.
+**Built** (revised after review of PR #117). Three new files, zero existing files
+modified. Full suite green. BAC-6 now covers **all 26 Swiss cantons** (a `review-pr`
+blocker) and the gazetteer `{}`-on-error path is pinned by a test. The cleaner stoplist is
+intentionally multi-word-only (bare `Jobs`/`Suche` would corrupt real place text) —
+reconciled in the spec in this same PR per `shared.md`.
 
 ## Checks that ran
 
 | Check | Command | Result |
 |---|---|---|
 | Byte-compile | `python3 -c "import py_compile; py_compile.compile('.github/scripts/locations.py', doraise=True)"` | pass |
-| Story tests | `python3 -m pytest .github/tests/test_locations.py -q` | 6 passed |
-| Full suite | `python3 -m pytest -q` | 248 passed |
+| Story tests | `python3 -m pytest .github/tests/test_locations.py -q` | 8 passed |
+| Full suite | `python3 -m pytest -q` | 250 passed |
 
-All 6 new tests map to acceptance criteria:
+The 8 tests map to acceptance criteria:
 - `test_cleaner_strips_trailing_separators_and_empty_parts` → BAC-4
 - `test_cleaner_rejects_filter_list_with_many_places` → BAC-4
 - `test_cleaner_drops_ui_junk_tokens` → BAC-4
 - `test_gazetteer_resolves_known_place_to_region_country_coords` → BAC-6
+- `test_gazetteer_resolves_every_swiss_canton` → BAC-6 (all 26 CH Kantone resolve)
+- `test_load_gazetteer_returns_empty_on_missing_file` → BAC-6 (graceful degradation)
 - `test_is_out_of_geo_true_for_non_dach_country` → BAC-6
 - `test_is_out_of_geo_false_for_dach_and_south_tyrol` → BAC-6
 
