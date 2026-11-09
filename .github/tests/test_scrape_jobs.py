@@ -17,9 +17,7 @@ Network is never hit: the one function that would fetch a page
 import json
 
 import pytest
-
 import scrape_jobs
-
 
 # ---------------------------------------------------------------------------
 # _infer_language_hint

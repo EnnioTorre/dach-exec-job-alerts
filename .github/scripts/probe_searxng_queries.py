@@ -11,7 +11,6 @@ Also probes pageno depth to see if fetching pages 2/3 adds results.
 """
 from __future__ import annotations
 
-import json
 import os
 import time
 from urllib.parse import urlparse
@@ -100,7 +99,6 @@ def main() -> None:
 
     print("\n== pageno depth probe (li_de_lead) ==")
     q = CANDIDATES[1][2]
-    seen = 0
     for pg in (1, 2, 3):
         res = search(q, pageno=pg)
         n = len([r for r in res if is_job_url(r.get("url", ""), "linkedin")])

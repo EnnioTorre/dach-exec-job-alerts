@@ -13,7 +13,6 @@ These functions are pure and side-effect free, so no mocking is needed.
 """
 
 import pytest
-
 import rank_jobs
 
 

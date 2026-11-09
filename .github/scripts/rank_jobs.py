@@ -6,14 +6,14 @@ Writes /tmp/jobs/jobs_ranked.json
 """
 
 import json
+import math
 import os
 import re
-import math
 import time
-from pathlib import Path
-from urllib.parse import urlparse
 from collections import defaultdict
 from datetime import date
+from pathlib import Path
+from urllib.parse import urlparse
 
 import requests
 

@@ -18,16 +18,16 @@ from pathlib import Path
 # Reuse all fetch/parse logic from the first-pass scraper.
 sys.path.insert(0, os.path.dirname(__file__))
 from scrape_jobs import (
-    fetch,
-    extract_jsonld_jobs,
-    normalize_jsonld,
-    enrich_from_company_page,
     PARSER_MAP,
-    parse_rss,
-    parse_stepstone,
-    parse_karriere_at,
+    enrich_from_company_page,
+    extract_jsonld_jobs,
+    fetch,
+    normalize_jsonld,
     parse_google_jobs,
     parse_jobs_ch,
+    parse_karriere_at,
+    parse_rss,
+    parse_stepstone,
 )
 
 EXTRA_SOURCES_PATH = "/tmp/jobs/extra_sources.json"
@@ -59,8 +59,9 @@ def _parser_for(url: str, name: str):
 
 def _generic_heading_scan(html: str, url: str, name: str) -> list[dict]:
     """Last-resort parser: treat h2/h3 headings with a nearby link as job rows."""
-    from bs4 import BeautifulSoup
     from urllib.parse import urlparse
+
+    from bs4 import BeautifulSoup
 
     soup = BeautifulSoup(html, "html.parser")
     jobs: list[dict] = []

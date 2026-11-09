@@ -19,7 +19,6 @@ import os
 import re
 import sys
 from datetime import date
-from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(__file__))
 from github_models import complete_json

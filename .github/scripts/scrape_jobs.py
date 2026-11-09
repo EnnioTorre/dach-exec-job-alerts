@@ -15,15 +15,15 @@ Source strategy by bot-protection level:
 Writes /tmp/jobs/jobs_raw.json.
 """
 
+import base64
 import json
 import os
 import random
 import re
 import time
-import base64
 import xml.etree.ElementTree as ET
 from datetime import date
-from urllib.parse import urlencode, urlparse, parse_qs, parse_qsl, urlunparse, unquote
+from urllib.parse import parse_qs, parse_qsl, unquote, urlencode, urlparse, urlunparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -38,8 +38,8 @@ except Exception:  # pragma: no cover - optional dependency
 # back to the dependency-free heuristic in `_infer_language_hint`, so this is a
 # soft/optional enhancement — never a hard requirement.
 try:
-    from langdetect import detect_langs as _ld_detect_langs
     from langdetect import DetectorFactory as _LdDetectorFactory
+    from langdetect import detect_langs as _ld_detect_langs
 
     _LdDetectorFactory.seed = 0  # deterministic output across runs
 except Exception:  # pragma: no cover - optional dependency
@@ -242,20 +242,20 @@ _EN_FUNCTION_WORDS = {
 class TokenBucket:
     """
     Token bucket rate limiter for a domain family.
-    
+
     Prevents exceeding rate limits by enforcing a "fill rate" (tokens/second).
     - Each request consumes 1 token.
     - Tokens refill over time at the specified rate.
     - Requests are blocked until a token is available.
     - No 429s, no retries — just honest rate limiting.
-    
+
     Example: TokenBucket(refill_rate=0.1) allows 1 request per 10 seconds.
     """
-    
+
     def __init__(self, refill_rate: float, capacity: int = 1):
         """
         Initialize token bucket.
-        
+
         Args:
             refill_rate: tokens per second (e.g., 0.1 = 1 request per 10s)
             capacity: max tokens in bucket (default 1 for strict cadence)
@@ -264,7 +264,7 @@ class TokenBucket:
         self.capacity = capacity
         self.tokens = float(capacity)
         self.last_refill_time = time.monotonic()
-    
+
     def _refill(self) -> None:
         """Add tokens based on elapsed time since last refill."""
         now = time.monotonic()
@@ -272,11 +272,11 @@ class TokenBucket:
         tokens_to_add = elapsed * self.refill_rate
         self.tokens = min(self.capacity, self.tokens + tokens_to_add)
         self.last_refill_time = now
-    
+
     def consume(self, tokens: float = 1.0) -> float:
         """
         Consume tokens, waiting if necessary.
-        
+
         Returns: seconds waited (0 if token was available immediately)
         """
         wait_time = 0.0
@@ -391,10 +391,10 @@ def _parse_retry_after(response: requests.Response) -> int | None:
 def _exponential_backoff_delay(attempt: int, base: float = 1.0, max_delay: float = 60.0) -> float:
     """
     Calculate exponential backoff delay with jitter to prevent thundering herd.
-    
+
     Formula: delay = min(base * 2^attempt + jitter, max_delay)
     Jitter: random [0, delay] for stochastic spreading.
-    
+
     Examples:
       attempt=0: base=1s → 1*2^0 = 1s + jitter up to 1s = up to 2s total
       attempt=1: 1*2^1 = 2s + jitter up to 2s = up to 4s total
@@ -408,18 +408,18 @@ def _exponential_backoff_delay(attempt: int, base: float = 1.0, max_delay: float
 def fetch(url: str, retries: int = 3) -> str | None:
     """
     HTTP GET with pre-emptive rate limiting (token bucket).
-    
+
     Rate limiting prevents 429 errors entirely by enforcing domain-family
     limits BEFORE making requests. No skipping, no blocking — just honest
     request pacing.
-    
+
     This uses token bucket algorithm: each domain family has a refill rate
     (tokens/second). Each request consumes 1 token. If no tokens available,
     we wait until one is assigned. Prevents exceeding server rate limits.
     """
     fam = _domain_family(url)
     limiter = _get_rate_limiter(fam)
-    
+
     # APPLY RATE LIMIT: wait if necessary, then consume 1 token
     # This is the key pre-emptive protection against 429s
     wait_time = limiter.consume(1.0)
@@ -893,7 +893,7 @@ def parse_rss(xml_text: str, source_name: str) -> list[dict]:
     ns = {"atom": "http://www.w3.org/2005/Atom"}
     items = root.findall(".//item") or root.findall(".//atom:entry", ns)
     for item in items:
-        def _t(tag: str) -> str:
+        def _t(tag: str, item=item) -> str:
             el = item.find(tag)
             if el is None:
                 el = item.find(f"atom:{tag}", ns)
@@ -1048,7 +1048,6 @@ def backfill_source_jobs(
         return current_jobs
 
     needed = max(0, min_per_source - len(current_jobs))
-    title_hint = source_name.replace("_", " ").lower()
     picks: list[dict] = []
     seen_links = {
         (j.get("application_url") or j.get("source_url") or "").strip().lower()
