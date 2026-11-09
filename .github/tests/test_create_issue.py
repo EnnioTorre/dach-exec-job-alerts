@@ -62,7 +62,7 @@ class TestFormatBody:
     def test_top15_rows_have_consistent_column_count(self):
         body = create_issue.format_body(_sample_data())
         lines = body.splitlines()
-        header_idx = next(i for i, l in enumerate(lines) if l.startswith("| # | Role |"))
+        header_idx = next(i for i, line in enumerate(lines) if line.startswith("| # | Role |"))
 
         # Count only *unescaped* pipes — the real column delimiters. Escaped
         # pipes (\|) inside cells are literals and must not split columns.

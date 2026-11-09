@@ -13,7 +13,6 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 import pytest
-
 import scrape_jobs as S
 
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "sources.json"
@@ -90,7 +89,7 @@ def test_html_and_json_sources_use_literal_url(raw_config):
 
 def test_fallbacks_structure():
     assert isinstance(S.SOURCE_URL_FALLBACKS, dict)
-    for name, alts in S.SOURCE_URL_FALLBACKS.items():
+    for _name, alts in S.SOURCE_URL_FALLBACKS.items():
         assert isinstance(alts, list) and alts
         assert all(isinstance(u, str) and u.startswith("http") for u in alts)
 

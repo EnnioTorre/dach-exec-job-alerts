@@ -20,8 +20,8 @@ Output:
 import json
 import os
 import sys
-from pathlib import Path
 from datetime import date
+from pathlib import Path
 
 # Try importing openai for GitHub Models API
 try:
@@ -94,8 +94,8 @@ def build_discovery_prompt() -> str:
     today = date.today()
     return f"""You are a DACH tech recruitment specialist with deep knowledge of job boards.
 
-Today is {today}. A job scraper for executive technology roles in DACH (Austria, Germany, Switzerland) 
-is being optimized. We have a baseline of 39 job sources covering LinkedIn, Indeed, Stepstone, Xing, 
+Today is {today}. A job scraper for executive technology roles in DACH (Austria, Germany, Switzerland)
+is being optimized. We have a baseline of 39 job sources covering LinkedIn, Indeed, Stepstone, Xing,
 Arbeitnow, and various search engine proxies.
 
 Your task: Suggest 5-10 ADDITIONAL or LESSER-KNOWN job sources that:
@@ -154,7 +154,7 @@ def main() -> None:
     output_file = Path(os.environ.get("DISCOVER_OUTPUT_FILE", OUTPUT_FILE))
 
     print(f"🔍 Starting source discovery ({date.today()})")
-    print(f"📍 Target: DACH executive tech jobs")
+    print("📍 Target: DACH executive tech jobs")
     print(f"📤 Output: {output_file}")
     print()
 
@@ -207,9 +207,9 @@ def main() -> None:
     print(f"\n✅ Wrote {output_file}")
     print("\n📋 Next steps:")
     print(f"  1. Review {output_file}")
-    print(f"  2. Add validated sources to scrape_jobs.py SOURCES list")
-    print(f"  3. Add fallback URLs to SOURCE_URL_FALLBACKS")
-    print(f"  4. Test: python3 .github/scripts/scrape_jobs.py")
+    print("  2. Add validated sources to scrape_jobs.py SOURCES list")
+    print("  3. Add fallback URLs to SOURCE_URL_FALLBACKS")
+    print("  4. Test: python3 .github/scripts/scrape_jobs.py")
 
 
 if __name__ == "__main__":

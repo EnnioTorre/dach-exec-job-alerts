@@ -253,16 +253,16 @@ def create_issue(title: str, body: str, labels: list[str]) -> bool:
     if result.returncode == 0:
         print(f"Issue created: {result.stdout.strip()}")
         return True
-    
+
     # If label error, retry without labels
     if "label" in result.stderr.lower() and "not found" in result.stderr.lower():
-        print(f"Label not found; retrying without labels...", file=sys.stderr)
+        print("Label not found; retrying without labels...", file=sys.stderr)
         cmd = ["gh", "issue", "create", "--title", title, "--body", body]
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode == 0:
             print(f"Issue created (without labels): {result.stdout.strip()}")
             return True
-    
+
     print(f"gh issue create failed:\n{result.stderr.strip()}", file=sys.stderr)
     return False
 
