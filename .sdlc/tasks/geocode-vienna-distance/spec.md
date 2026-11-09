@@ -1,9 +1,22 @@
 ---
 id: spec-geocode-vienna-distance
-status: in-progress
+status: complete
 created: 2026-11-06
 parent: ../../prds/precise-location-ranking/plan.md
 story: "Story 2: Geocode arbitrary locations into the Vienna-distance score"
+deviations:
+  - description: "Disable flag, default ON (not the plan's enable-flag / dark launch)"
+    reason: "User decision — matches the team's continuous-deployment posture"
+    spec-update-needed: false
+  - description: "Geocoding activated in the workflow in this PR (plan scoped Story 2 to rank_jobs.py + test only)"
+    reason: "User decision — activate-now rather than ship-dark"
+    spec-update-needed: false
+  - description: "Self-contained rate limiting in rank_jobs.py instead of reusing scrape_jobs' limiter"
+    reason: "Avoids coupling the ranker to the 2,300-line scrape module; no BAC impact"
+    spec-update-needed: false
+  - description: "Persistent cross-run geocode cache (/tmp/jobs/geocode_cache.json restored via actions/cache) — the spec's Open Decision said 'in-run cache'"
+    reason: "Added during review to resolve the determinism/order-bias/wall-clock warnings; the Open Decision resolved to persistent"
+    spec-update-needed: true
 ---
 
 # Specification: Geocode arbitrary locations into the Vienna-distance score
