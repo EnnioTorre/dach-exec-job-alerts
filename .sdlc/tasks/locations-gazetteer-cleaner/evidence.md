@@ -3,7 +3,7 @@ id: evidence-locations-gazetteer-cleaner
 spec: ./spec.md
 status: built
 created: 2026-11-09
-revision: 4750184
+revision: e4786e1
 ---
 
 # Evidence: Locations module foundation — gazetteer, cleaner, geography predicate
@@ -21,13 +21,14 @@ reconciled in the spec in this same PR per `shared.md`.
 | Check | Command | Result |
 |---|---|---|
 | Byte-compile | `python3 -c "import py_compile; py_compile.compile('.github/scripts/locations.py', doraise=True)"` | pass |
-| Story tests | `python3 -m pytest .github/tests/test_locations.py -q` | 8 passed |
-| Full suite | `python3 -m pytest -q` | 250 passed |
+| Story tests | `python3 -m pytest .github/tests/test_locations.py -q` | 9 passed |
+| Full suite | `python3 -m pytest -q` | 251 passed |
 
-The 8 tests map to acceptance criteria:
+The 9 tests map to acceptance criteria:
 - `test_cleaner_strips_trailing_separators_and_empty_parts` → BAC-4
 - `test_cleaner_rejects_filter_list_with_many_places` → BAC-4
 - `test_cleaner_drops_ui_junk_tokens` → BAC-4
+- `test_cleaner_preserves_bare_job_and_search_tokens` → BAC-4 (bare `Jobs`/`Suche` kept)
 - `test_gazetteer_resolves_known_place_to_region_country_coords` → BAC-6
 - `test_gazetteer_resolves_every_swiss_canton` → BAC-6 (all 26 CH Kantone resolve)
 - `test_load_gazetteer_returns_empty_on_missing_file` → BAC-6 (graceful degradation)
