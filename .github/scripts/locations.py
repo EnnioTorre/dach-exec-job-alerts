@@ -110,6 +110,16 @@ def _location_geocoding_enabled() -> bool:
     return os.getenv("RANK_GEOCODE", "true").strip().lower() not in {"0", "false", "no"}
 
 
+def _location_geocode_budget() -> int:
+    # Own budget knob so capping this stage never doubles the ranker's Nominatim
+    # volume; falls back to RANK_GEOCODE_MAX, then 50. Non-numeric -> 50 (never raises).
+    raw = os.getenv("LOCATION_GEOCODE_MAX") or os.getenv("RANK_GEOCODE_MAX") or "50"
+    try:
+        return int(raw)
+    except ValueError:
+        return 50
+
+
 def _to_german_market(address: dict) -> tuple[str, str]:
     """
     Map a Nominatim `address` object (fetched with accept-language=de) to
@@ -173,7 +183,7 @@ def _geocode_address(place: str) -> dict | None:
         return None
 
     global _loc_geocode_used, _last_loc_geocode_ts
-    if _loc_geocode_used >= int(os.getenv("RANK_GEOCODE_MAX", "50")):
+    if _loc_geocode_used >= _location_geocode_budget():
         return None
 
     # Honour Nominatim's <=1 req/s usage policy.
@@ -211,7 +221,7 @@ def load_location_cache() -> None:
                 }
             else:
                 _LOCATION_CACHE[k] = None
-    except (OSError, json.JSONDecodeError, ValueError, TypeError):
+    except (OSError, json.JSONDecodeError, ValueError, TypeError, AttributeError):
         pass
 
 

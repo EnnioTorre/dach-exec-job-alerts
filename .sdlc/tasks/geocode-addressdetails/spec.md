@@ -114,7 +114,7 @@ in Story 1; this story adds no config file.)
 | `_loc_geocode_used`, `_last_loc_geocode_ts` | `int`, `float` | Module-level budget counter + last-request timestamp (independent of `rank_jobs`'s). |
 | `_location_geocoding_enabled()` | `() -> bool` | `os.getenv("RANK_GEOCODE","true")` not in `{0,false,no}` — reuses the same operator switch as `rank_jobs`. |
 | `_to_german_market(address)` | `(dict) -> (region, country)` | `country = address.get("country")` (German via `accept-language=de`); `region = address.get("state") or address.get("region") or PLACEHOLDER`. **South-Tyrol override:** when the country is Italy (`Italien`/`Italy`/`it`) and the address indicates the Bolzano/Bozen province or South Tyrol (e.g. `address.state`/`county`/`ISO3166-2-lvl4` contains `Südtirol`/`Bolzano`/`Bozen`/`BZ`), set `region = "Südtirol"` and keep `country = "Italien"`, so `_is_out_of_geo` accepts it. |
-| `_geocode_address(place)` | `(str) -> dict \| None` | Cached, budgeted, rate-limited resolver. Lowercased-key cache lookup first; if enabled and under `RANK_GEOCODE_MAX` budget, space ≥1 req/s, call Nominatim with `addressdetails=1`, parse `address` + `lat`/`lon`, apply `_to_german_market`, build `{"region","country","coords":(lat,lon)}`, cache and return it. On disabled / exhausted / empty place / non-200 / empty result / any exception → cache `None` (for a real miss) and return `None`. **Never raises.** |
+| `_geocode_address(place)` | `(str) -> dict \| None` | Cached, budgeted, rate-limited resolver. Lowercased-key cache lookup first; if enabled and under the `LOCATION_GEOCODE_MAX` budget (falls back to `RANK_GEOCODE_MAX`, then 50), space ≥1 req/s, call Nominatim with `addressdetails=1`, parse `address` + `lat`/`lon`, apply `_to_german_market`, build `{"region","country","coords":(lat,lon)}`, cache and return it. On disabled / exhausted / empty place / non-200 / empty result / any exception → cache `None` (for a real miss) and return `None`. **Never raises.** |
 | `load_location_cache()` | `() -> None` | Load `{place: {region,country,lat,lon} \| null}` from `LOCATION_CACHE_PATH` (default `/tmp/jobs/location_cache.json`) into `_LOCATION_CACHE`; tolerate a missing/malformed file (never raise). Empty path disables disk I/O. Mirrors `rank_jobs._load_geocode_cache`. |
 | `save_location_cache()` | `() -> None` | Serialize `_LOCATION_CACHE` to that path as `{place: {region,country,lat,lon} \| null}`, creating the dir. Tolerate `OSError`. Empty path = no-op. Mirrors `rank_jobs._save_geocode_cache`. |
 
@@ -124,14 +124,17 @@ in Story 1; this story adds no config file.)
   regions; the one curated override is **South Tyrol → `Südtirol` / `Italien`** (BAC-6 accepts it
   in-geography via region).
 - **OSMF usage policy (ADR-0001):** descriptive `User-Agent`, **≥1 req/s** spacing, explicit timeout
-  `(3.05, 10)`, results (incl. misses) cached. Bounded per run by `RANK_GEOCODE_MAX`.
+  `(3.05, 10)`, results (incl. misses) cached. Bounded per run by `LOCATION_GEOCODE_MAX` (own knob,
+  default 50; falls back to `RANK_GEOCODE_MAX`).
 - **Graceful degradation (BAC-9):** any failure, disablement, or budget exhaustion returns `None`;
   the caller (Story 3) then uses the placeholder for the unresolved parts. A geocoding outage never
   fails the run.
 - **No ranking regression (BAC-9):** this story is unused at merge; it introduces no change to the
   existing `rank_jobs` geocoding or `_DACH_LOCATION_POINTS` distance fallback.
-- **Budget independence:** this module keeps its own cache/counter/timestamp, so its `RANK_GEOCODE_MAX`
-  budget is separate from the ranker's. The two stages run in separate processes (scrape/normalize vs
+- **Budget independence:** this module keeps its own cache/counter/timestamp and its own
+  `LOCATION_GEOCODE_MAX` knob (falling back to `RANK_GEOCODE_MAX`, then 50), so capping this stage does
+  **not** double the ranker's Nominatim volume. The two stages run in separate processes
+  (scrape/normalize vs
   rank), so the ≥1 req/s policy holds per process.
 
 ## Data and Contract Mappings
@@ -180,7 +183,8 @@ new mechanism.*
 
 ## Verification Criteria
 
-The five plan tests (Level `CT`, Type `Functional`). Network is mocked via
+The five plan tests plus a sixth added in review to pin the South-Tyrol override (Level `CT`, Type
+`Functional`). Network is mocked via
 `monkeypatch.setattr(locations.requests, "get", …)` with a `_FakeResp` double (never a live call); the
 persisted cache uses `tmp_path` + `LOCATION_CACHE_PATH`; the budget/enable use env + resetting the
 module counters/cache in the test (as `test_rank_jobs.py` does with an autouse fixture).
@@ -193,7 +197,8 @@ module counters/cache in the test (as `test_rank_jobs.py` does with an autouse f
 | `test_geocode_failure_degrades_to_none` | Functional | A non-200 / request exception / empty result ⇒ `_geocode_address` returns `None` and never raises | geocode returns `None` on failure, no raise — a geocoding outage breaks the run | BAC-9 |
 | `test_location_cache_round_trip_persists_hits_and_misses` | Functional | `save_location_cache()` then `load_location_cache()` preserves a hit record and a `None` miss | hits + misses survive save/reload — re-geocoding wastes budget / non-reproducible | BAC-9 |
 | `test_addressdetails_cached_place_makes_no_second_call` | Functional | A place already in `_LOCATION_CACHE` ⇒ a second `_geocode_address` makes no HTTP call (mock set to raise) | a cached place ⇒ no network call — wasted Nominatim calls / policy breach | BAC-9 |
-| `test_addressdetails_respects_per_run_budget` | Functional | With `RANK_GEOCODE_MAX=1`, a second distinct place ⇒ `None` with no further call | beyond budget ⇒ no further call — unbounded geocoding breaches OSM policy | BAC-9 |
+| `test_addressdetails_respects_per_run_budget` | Functional | With `LOCATION_GEOCODE_MAX=1`, a second distinct place ⇒ `None` with no further call | beyond budget ⇒ no further call — unbounded geocoding breaches OSM policy | BAC-9 |
+| `test_south_tyrol_maps_to_suedtirol` | Functional | An Italy/Bolzano `addressdetails` payload ⇒ `region="Südtirol"`, `country="Italien"`, and `_is_out_of_geo` accepts it | South-Tyrol postings wrongly excluded / mis-regioned | BAC-6 |
 
 ### System / Integration Tests (ST · SIT)
 None — resolver is exercised in isolation; wiring into scrape/rank is Stories 4–5.
@@ -244,7 +249,7 @@ None at this level.
   - A South-Tyrol payload: `address` with `country:"Italien"` and a Bolzano/Bozen/Südtirol marker ⇒ `region="Südtirol"`.
   - Failure shapes: `status=500`, `requests.RequestException`, and `[]` (empty) ⇒ `None`.
   - Cache round-trip: one hit record + one `None` miss.
-  - Budget: `RANK_GEOCODE_MAX=1` with two distinct places.
+  - Budget: `LOCATION_GEOCODE_MAX=1` with two distinct places.
 
 ## Out of Scope
 

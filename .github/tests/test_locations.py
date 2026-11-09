@@ -28,11 +28,13 @@ class _FakeResp:
 
 @pytest.fixture(autouse=True)
 def _reset_location_geocode_state(monkeypatch):
-    # Keep the geocode tests hermetic: geocoding on, no disk, fresh budget/cache.
+    # Keep the geocode tests hermetic and fast: geocoding on, no disk, fresh
+    # budget/cache, and the >=1 req/s rate-limiter sleep neutralised.
     monkeypatch.setenv("RANK_GEOCODE", "true")
     monkeypatch.setenv("LOCATION_CACHE_PATH", "")  # never touch disk unless a test opts in
     monkeypatch.setattr(locations, "_loc_geocode_used", 0)
     monkeypatch.setattr(locations, "_last_loc_geocode_ts", 0.0)
+    monkeypatch.setattr(locations.time, "sleep", lambda *a, **k: None)
     locations._LOCATION_CACHE.clear()
 
 
@@ -118,7 +120,7 @@ class TestGeocodeAddressDetails:
         assert locations._geocode_address("Graz") == cached
 
     def test_addressdetails_respects_per_run_budget(self, monkeypatch):
-        monkeypatch.setenv("RANK_GEOCODE_MAX", "1")
+        monkeypatch.setenv("LOCATION_GEOCODE_MAX", "1")
         payload = [{"lat": "48.2082", "lon": "16.3738", "address": {"state": "Wien", "country": "Österreich"}}]
         calls = {"n": 0}
 
@@ -132,4 +134,15 @@ class TestGeocodeAddressDetails:
         assert first is not None
         assert second is None  # budget of 1 exhausted
         assert calls["n"] == 1  # no second network call
+
+    def test_south_tyrol_maps_to_suedtirol(self, monkeypatch):
+        payload = [{
+            "lat": "46.4983", "lon": "11.3548",
+            "address": {"state": "Trentino-Alto Adige/Südtirol", "country": "Italien", "country_code": "it"},
+        }]
+        monkeypatch.setattr(locations.requests, "get", lambda *a, **k: _FakeResp(200, payload))
+        rec = locations._geocode_address("Bozen")
+        assert rec["region"] == "Südtirol"
+        assert rec["country"] == "Italien"
+        assert locations._is_out_of_geo(rec["country"], rec["region"]) is False
 
