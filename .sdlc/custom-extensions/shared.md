@@ -13,11 +13,33 @@ precedence over a skill's default behaviour.
 
 ## Pull requests
 
-- **Smallest PR possible.** Prefer `S`-sized PRs; split aggressively. A PR should do one
-  reviewable thing and be reviewable in well under 30 minutes. When a change grows, break it
-  into stacked/sequential PRs rather than one large PR.
-- Keep each PR independently deployable and green on its own.
+- **Small by definition: ≤ 200 changed lines AND ≤ 3 files touched.** A PR over either threshold is
+  too big — split it. (Generated/lock files and the `.sdlc/` task trail don't count toward the code
+  thresholds, but the implementation + its tests do.)
+- **One reviewable thing**, reviewable in well under 30 minutes, independently deployable, green on
+  its own.
+- **Tests track code.** A PR's committed tests cover only the code committed in that same PR — never
+  tests for code that will land in another PR.
 - PR **title** follows Conventional Commits (see below).
+
+### Short-lived branches (branch < 1 day; decouple branch lifetime from feature size)
+
+A feature bigger than one small PR ships as several short-lived branches, not one long branch. Pick
+the pattern that fits:
+
+- **Stacked PRs** — chain dependent branches (PR #2 builds on PR #1's branch); bottom merges first,
+  the rest rebase onto `main` and cascade. Use for a change with a natural order.
+- **Branch by abstraction** — for refactors/migrations a flag can't cover: add an interface → add the
+  new impl behind it → switch callers (flag) → delete the old impl. Four small sequential PRs.
+- **Ship behind a feature flag** — new features land on `main` behind an off-by-default flag; the
+  branch closes as soon as the slice is reviewable, even if the feature is weeks from user-facing.
+- **Split by execution path** — scaffolding (types/interfaces/empty bodies, behind a flag) → primary
+  happy path → edge cases, each its own small PR.
+
+**Anti-patterns (do not do):**
+- Force-merging incomplete work into `main` with no flag/abstraction "to keep the branch short".
+- "WIP" branches kept open for days — measure branch life from first commit, not from PR-open.
+
 
 ## Commits
 
@@ -25,3 +47,11 @@ precedence over a skill's default behaviour.
   `type(scope): description` — e.g. `feat(scrape): capture specific city/region`.
 - Common types: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`, `ci`, `perf`, `build`.
 - Keep the subject line imperative and ≤ ~72 chars; put rationale and ticket refs in the body.
+
+## Documentation invariants
+
+- **Reconcile invariants in-PR.** When a change contradicts a documented project invariant (e.g. the
+  "Ranking is deterministic (no AI)" note), update that invariant's documentation in the *same* PR —
+  never defer it to a later docs PR.
+  *Why: a geocoding change made the ranker network-dependent; the "deterministic" claim was left
+  unreconciled and the gap-critic flagged the doc/code mismatch across two review iterations — PR #110.*
