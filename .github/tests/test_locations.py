@@ -30,6 +30,12 @@ class TestCleanLocationParts:
         assert all("suche erweitern" not in p.lower() for p in parts)
         assert "CA" in parts
 
+    def test_cleaner_preserves_bare_job_and_search_tokens(self):
+        # Only multi-word UI phrases are stripped; bare "Jobs"/"Suche" are kept
+        # so legitimate place/title text is never corrupted (reconciled BAC-4).
+        assert locations.clean_location_parts("Engineering Jobs, Wien") == ["Engineering Jobs", "Wien"]
+        assert locations.clean_location_parts("Suche, Graz") == ["Suche", "Graz"]
+
 
 class TestGazetteer:
     def test_gazetteer_resolves_known_place_to_region_country_coords(self):

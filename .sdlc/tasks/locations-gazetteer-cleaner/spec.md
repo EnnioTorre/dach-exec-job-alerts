@@ -68,7 +68,7 @@ inside `normalize_location`. This story only ships those parts and their tests.
 |-----------|---------|-------------------|
 | `.github/config/dach_gazetteer.json` | `place → {region, country, lat, lon}` for DACH + South Tyrol, German-market local form | `.github/config/sources.json` (project JSON config shape + load convention) |
 | `.github/scripts/locations.py` | Loader + cleaner + `_haversine_km` + `_is_out_of_geo` + `PLACEHOLDER` | `.github/scripts/rank_jobs.py` (`_DACH_LOCATION_POINTS`, `_haversine_km`, `_is_bare_country_location`) |
-| `.github/tests/test_locations.py` | The 6 CT tests below | `.github/tests/test_rank_jobs.py` (class-based, pure, `rank_jobs` import) |
+| `.github/tests/test_locations.py` | The CT tests in Verification Criteria below | `.github/tests/test_rank_jobs.py` (class-based, pure, `rank_jobs` import) |
 
 No existing file is modified.
 
@@ -144,6 +144,7 @@ conventions (`import locations`, class-grouped).
 | `test_cleaner_strips_trailing_separators_and_empty_parts` | Functional | `"Wien,"` → `["Wien"]`; `"Graz,, "` → `["Graz"]` (no empty parts) | Trailing-comma/empty junk reaches ranking and the digest | BAC-4 |
 | `test_cleaner_rejects_filter_list_with_many_places` | Functional | The all-Austrian-states string (10 parts) → `[]` | A filter/facet list is shown as a posting's location (digest #109) | BAC-4 |
 | `test_cleaner_drops_ui_junk_tokens` | Functional | `"San Francisco, CASuche erweitern"` has `"Suche erweitern"` stripped (part becomes `"CA"`) | Page UI text taken as a location | BAC-4 |
+| `test_cleaner_preserves_bare_job_and_search_tokens` | Functional | `"Engineering Jobs, Wien"` → `["Engineering Jobs", "Wien"]`; `"Suche, Graz"` → `["Suche", "Graz"]` (bare `Jobs`/`Suche` kept) | A bare-token stoplist corrupts legitimate place/title text | BAC-4 |
 | `test_gazetteer_resolves_known_place_to_region_country_coords` | Functional | `load_gazetteer()["graz"]` == `{region: "Steiermark", country: "Österreich", lat, lon}` | Region/country can't be completed offline | BAC-6 |
 | `test_is_out_of_geo_true_for_non_dach_country` | Functional | `_is_out_of_geo("USA")` is `True`; `_is_out_of_geo("Italien")` is `True` (no Südtirol region) | Out-of-geography postings slip into the shortlist | BAC-6 |
 | `test_is_out_of_geo_false_for_dach_and_south_tyrol` | Functional | `_is_out_of_geo("Österreich")` is `False`; `_is_out_of_geo("Italien", "Südtirol")` is `False` | Valid South-Tyrol postings wrongly excluded | BAC-6 |
