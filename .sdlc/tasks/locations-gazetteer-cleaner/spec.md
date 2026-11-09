@@ -1,6 +1,6 @@
 ---
 id: spec-locations-gazetteer-cleaner
-status: in-progress
+status: built
 created: 2026-11-09
 parent: ../../prds/standardized-job-location/plan.md
 story: "Story 1: Locations module foundation — gazetteer, cleaner, geography predicate"
