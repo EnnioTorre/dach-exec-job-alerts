@@ -80,8 +80,10 @@ South Tyrol → `Südtirol`). Must include, at minimum:
 - Every place already in `_DACH_LOCATION_POINTS` (reuse its coords), each with its region + country
   (e.g. `graz → {Steiermark, Österreich, 47.0707, 15.4395}`, `wels → {Oberösterreich, Österreich, …}`,
   `zürich → {Zürich, Schweiz, …}`, `bozen → {Südtirol, Italien, …}`).
-- Every AT Bundesland, DE Bundesland, CH Kanton, and `Südtirol` as **self-referential** entries
-  (region name → region=itself, country, centroid coords) so a region string resolves too.
+- Every AT Bundesland (9), DE Bundesland (16), CH Kanton (**all 26**), and `Südtirol` as
+  **self-referential** entries (region name → region=itself, country, centroid/capital coords) so a
+  region string resolves too. A region-only Swiss posting (e.g. `Thurgau`) must resolve a country,
+  otherwise `_is_out_of_geo`'s fail-closed default would silently exclude it downstream.
 - Include both spellings already in the table (`wien`/`vienna`, `münchen`/`munich`, `zürich`/`zurich`,
   `bozen`/`bolzano`, `genf`/`geneva`) mapping to the same German-market record.
 
@@ -90,8 +92,8 @@ South Tyrol → `Südtirol`). Must include, at minimum:
 | Symbol | Signature | Behaviour |
 |---|---|---|
 | `PLACEHOLDER` | `str = "—"` | Em dash used for unknown location parts. Never matched as a place. |
-| `load_gazetteer()` | `() -> dict[str, dict]` | Load the JSON once (module-level cache), keyed by lowercased place. Path resolved relative to the module: `Path(__file__).parent.parent / "config" / "dach_gazetteer.json"` (override via `GAZETTEER_PATH` env, mirroring `SOURCES_CONFIG_PATH`). On read/parse error → return `{}` (never raise). |
-| `clean_location_parts(raw)` | `(str) -> list[str]` | Produce candidate place strings: (1) strip known **UI/junk phrases** as case-insensitive substrings (stoplist incl. `"Suche erweitern"`, `"Mehr anzeigen"`, `"Alle Jobs"`, `"Jobs"`, `"Suche"`); (2) split on commas, `strip()` each, drop empty/whitespace-only parts; (3) if more than `MAX_LOCATION_PARTS` (default **5**) non-empty parts remain, treat as a filter/facet list and return `[]`; (4) else return the cleaned parts. Never raises. |
+| `load_gazetteer()` | `() -> dict[str, dict]` | Load the JSON, cached **per resolved path**, keyed by lowercased place. Path resolved relative to the module: `Path(__file__).parent.parent / "config" / "dach_gazetteer.json"` (override via `GAZETTEER_PATH` env, mirroring `SOURCES_CONFIG_PATH`). Per-path caching keeps the `GAZETTEER_PATH` override honoured after first load and the error path reachable. On read/parse error → return `{}` (never raise). |
+| `clean_location_parts(raw)` | `(str) -> list[str]` | Produce candidate place strings: (1) strip known **UI/junk phrases** as case-insensitive substrings. The stoplist is **multi-word phrases only** (`"Suche erweitern"`, `"Mehr anzeigen"`, `"Alle Jobs"`, `"Jobs anzeigen"`, `"Zur Suche"`) — bare `"Jobs"`/`"Suche"` are deliberately **not** stripped, because they recur inside legitimate place/title text and bare-token stripping corrupts real locations; (2) split on commas, `strip()` each, drop empty/whitespace-only parts; (3) if more than `MAX_LOCATION_PARTS` (default **5**) non-empty parts remain, treat as a filter/facet list and return `[]`; (4) else return the cleaned parts. Never raises. |
 | `_haversine_km(lat1, lon1, lat2, lon2)` | `(float×4) -> float` | Great-circle km. Copy the implementation from `rank_jobs._haversine_km`. |
 | `_is_out_of_geo(country, region=None)` | `(str, str \| None) -> bool` | `False` (in-geography) when `country` is one of `Österreich` / `Deutschland` / `Schweiz` **or** `region == "Südtirol"` (South Tyrol, in Italy, is accepted). `True` otherwise. Case-insensitive compare. |
 
@@ -130,8 +132,10 @@ shared home both `scrape_jobs.py` and `rank_jobs.py` will import (neither should
 
 ## Verification Criteria
 
-All six tests are the plan's, verbatim (Level `CT`, Type `Functional`). Pure functions — **no mocking**.
-`test_locations.py` is new; follows `test_rank_jobs.py` conventions (`import locations`, class-grouped).
+The six plan tests (Level `CT`, Type `Functional`), plus two added during review to pin canton
+coverage and the `{}`-on-error path. Pure functions — **no mocking** except a `GAZETTEER_PATH`
+env override for the error-path test. `test_locations.py` is new; follows `test_rank_jobs.py`
+conventions (`import locations`, class-grouped).
 
 ### Component Tests (CT)
 
@@ -143,6 +147,8 @@ All six tests are the plan's, verbatim (Level `CT`, Type `Functional`). Pure fun
 | `test_gazetteer_resolves_known_place_to_region_country_coords` | Functional | `load_gazetteer()["graz"]` == `{region: "Steiermark", country: "Österreich", lat, lon}` | Region/country can't be completed offline | BAC-6 |
 | `test_is_out_of_geo_true_for_non_dach_country` | Functional | `_is_out_of_geo("USA")` is `True`; `_is_out_of_geo("Italien")` is `True` (no Südtirol region) | Out-of-geography postings slip into the shortlist | BAC-6 |
 | `test_is_out_of_geo_false_for_dach_and_south_tyrol` | Functional | `_is_out_of_geo("Österreich")` is `False`; `_is_out_of_geo("Italien", "Südtirol")` is `False` | Valid South-Tyrol postings wrongly excluded | BAC-6 |
+| `test_gazetteer_resolves_every_swiss_canton` | Functional | All 26 CH Kantone resolve to a record with `country == "Schweiz"` | Region-only Swiss postings silently excluded by the fail-closed predicate | BAC-6 |
+| `test_load_gazetteer_returns_empty_on_missing_file` | Functional | `GAZETTEER_PATH` → nonexistent file ⇒ `load_gazetteer() == {}` (never raises) | A bad/missing gazetteer crashes the pipeline | BAC-6 |
 
 ### System / Integration Tests (ST · SIT)
 None — pure module.

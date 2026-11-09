@@ -38,7 +38,9 @@ _JUNK_PHRASES = (
 _DACH_COUNTRIES = {"österreich", "deutschland", "schweiz"}
 _SOUTH_TYROL_REGION = "südtirol"
 
-_GAZETTEER: dict[str, dict] | None = None
+# Cached per resolved path so a changed GAZETTEER_PATH reloads (and the
+# {}-on-error path stays reachable) rather than being pinned to the first load.
+_GAZETTEER_CACHE: dict[str, dict[str, dict]] = {}
 
 
 def _gazetteer_path() -> str:
@@ -51,24 +53,25 @@ def _gazetteer_path() -> str:
 def load_gazetteer() -> dict[str, dict]:
     """
     Load the DACH + South-Tyrol gazetteer: lowercased place -> {region, country,
-    lat, lon}. Cached after first load. Returns {} on any read/parse error
+    lat, lon}. Cached per resolved path. Returns {} on any read/parse error
     (never raises). Keys prefixed with '_' (e.g. the file's `_comment`) are
     metadata and are skipped.
     """
-    global _GAZETTEER
-    if _GAZETTEER is not None:
-        return _GAZETTEER
+    path = _gazetteer_path()
+    if path in _GAZETTEER_CACHE:
+        return _GAZETTEER_CACHE[path]
     try:
-        with open(_gazetteer_path(), encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             raw = json.load(f)
-        _GAZETTEER = {
+        gazetteer = {
             k.strip().lower(): v
             for k, v in raw.items()
             if not k.startswith("_") and isinstance(v, dict)
         }
     except (OSError, json.JSONDecodeError, ValueError, TypeError):
-        _GAZETTEER = {}
-    return _GAZETTEER
+        gazetteer = {}
+    _GAZETTEER_CACHE[path] = gazetteer
+    return gazetteer
 
 
 def clean_location_parts(raw: str) -> list[str]:
