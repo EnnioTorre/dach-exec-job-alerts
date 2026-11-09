@@ -6,8 +6,8 @@ parent: ../../prds/standardized-job-location/plan.md
 story: "Story 1: Locations module foundation — cleaner, geography predicate, Haversine"
 deviations:
   - description: "Dropped the bundled DACH gazetteer (dach_gazetteer.json + load_gazetteer()); region/country/coords now come from geocoding only."
-    reason: "Stakeholder decision on PR #117 — avoid maintaining a static table; rely on Nominatim addressdetails (Story 3). PRD Option C (gazetteer-first) superseded by geocode-only; plan + downstream stories need revise-plan."
-    spec-update-needed: true
+    reason: "Stakeholder decision on PR #117 — avoid maintaining a static table; rely on Nominatim addressdetails (Story 3). PRD Option C (gazetteer-first) superseded by geocode-only. Plan revised accordingly (R1, 2026-11-09); this spec updated to match."
+    spec-update-needed: false
 ---
 
 # Specification: Locations module foundation — cleaner, geography predicate, Haversine
@@ -24,14 +24,11 @@ out-of-geography rows like San Francisco). The feature fixes this with a shared 
 a string **cleaner** (junk/UI/filter-list rejection), a Haversine helper, an out-of-geography
 predicate, and the placeholder constant. **Region/country/coordinates are resolved by geocoding**
 (Nominatim `addressdetails`, Story 3) — there is **no bundled gazetteer table**. **Nothing imports
-this module yet** — `normalize_location` (Story 2) and the geocode resolver (Story 3) are added to this
+this module yet** — the geocode resolver (Story 2) and `normalize_location` (Story 3) are added to this
 same module next; scrape/rank/digest wiring is Stories 4–6.
 
 Confirmed ground truth (read from `main`):
 - `_haversine_km` (rank_jobs.py:587) is the distance primitive — copied verbatim into `locations.py`.
-- `_GENERIC_LOCATIONS`/`_is_generic_location` ([scrape_jobs.py](../../../.github/scripts/scrape_jobs.py):1816)
-  and `_BARE_LOCATIONS`/`_is_bare_country_location` (rank_jobs.py:467) are the existing country-word
-  sets — the cleaner reuses these words to recognise/drop bare country tokens.
 - `conftest.py` puts `.github/scripts` on `sys.path`, so `import locations` works in tests.
 
 ## Dependencies
@@ -95,7 +92,6 @@ geocoding (Story 3).
 | Pattern | Reference Implementation |
 |---------|------------------------|
 | Haversine distance | `rank_jobs.py:_haversine_km` (587) |
-| Country/bare-location word set + predicate | `rank_jobs.py:_BARE_LOCATIONS`/`_is_bare_country_location` (467); `scrape_jobs.py:_GENERIC_LOCATIONS`/`_is_generic_location` (1816) |
 | Pure, class-grouped pytest, no mocking | `.github/tests/test_rank_jobs.py` (`TestViennaDistanceScore`) |
 
 ## Existing Code to Reuse
@@ -103,7 +99,6 @@ geocoding (Story 3).
 | Existing Asset | Location | How to Reuse | Why Not Create New |
 |---------------|----------|--------------|-------------------|
 | `_haversine_km` | `rank_jobs.py:587` | Copy verbatim into `locations.py` | Identical maths; a later story can de-duplicate across modules |
-| `_GENERIC_LOCATIONS` / `_BARE_LOCATIONS` | `scrape_jobs.py:1816` / `rank_jobs.py:467` | Country-word list for the cleaner to recognise/drop bare country tokens | The project's agreed country-marker vocabulary |
 
 *No existing module already provides a junk/filter cleaner or an out-of-geography predicate — these
 are genuinely new. `locations.py` is a new file because it is the shared home both `scrape_jobs.py`

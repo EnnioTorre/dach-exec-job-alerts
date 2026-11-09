@@ -3,7 +3,7 @@ id: evidence-locations-gazetteer-cleaner
 spec: ./spec.md
 status: built
 created: 2026-11-09
-revision: 48d658d
+revision: 48d658d  # last code commit; later commits on this branch are docs-only (spec/evidence/pr-body)
 ---
 
 # Evidence: Locations module foundation — cleaner, geography predicate, Haversine
@@ -14,8 +14,8 @@ revision: 48d658d
 bundled gazetteer: region/country/coords will come from geocoding (Nominatim
 `addressdetails`, Story 3), not a static table. `dach_gazetteer.json`, `load_gazetteer()`
 and the gazetteer tests were removed. Two new files, zero existing files modified. Full
-suite green. **This changes PRD Option C (gazetteer-first) → geocode-only, so the plan and
-Stories 2–6 need `revise-plan`, and this PR needs a fresh `review-pr`.**
+suite green. The plan was revised accordingly (**R1, geocode-only** — S2↔S3 reordered so the
+geocode resolver precedes `normalize_location`). This PR was re-reviewed at iteration 3.
 
 ## Checks that ran
 
