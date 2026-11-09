@@ -3,7 +3,7 @@ id: evidence-locations-gazetteer-cleaner
 spec: ./spec.md
 status: built
 created: 2026-11-09
-revision: pending-geocode-only-commit
+revision: 48d658d
 ---
 
 # Evidence: Locations module foundation — cleaner, geography predicate, Haversine
