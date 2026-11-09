@@ -33,6 +33,17 @@ jobs:
         with:
           node-version: "20"
 
+      # Persist the Nominatim geocode cache across daily runs so repeated
+      # city lookups are reused (fewer requests, stable scores). restore-keys
+      # fetches the most recent prior cache; a unique key saves a fresh one.
+      - name: Restore geocode cache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/jobs/geocode_cache.json
+          key: geocode-cache-${{ github.run_id }}
+          restore-keys: |
+            geocode-cache-
+
       - name: Install dependencies
         run: pip install --quiet requests beautifulsoup4 openai langdetect
 
@@ -118,7 +129,11 @@ jobs:
       # ------------------------------------------------------------------
       - name: Rank jobs
         run: python .github/scripts/rank_jobs.py
-
+        env:
+          # Geocoding is on by default; cap calls and set a descriptive
+          # User-Agent per the OSM Nominatim usage policy.
+          RANK_GEOCODE_MAX: "60"
+          RANK_GEOCODE_USER_AGENT: "dach-exec-job-alerts/1.0 (+https://github.com/${{ github.repository }})"
       # ------------------------------------------------------------------
       # Stage 2b: live validation loop (scrape+rank retries)
       #   Re-runs the deterministic pipeline a few times and validates
@@ -128,6 +143,10 @@ jobs:
         run: python .github/scripts/test_scraper_loop.py
         env:
           SCRAPER_FAIL_ON_FETCH_ERROR: "false"
+          # Geocoding config for the rank subprocesses the loop spawns; the
+          # persisted cache (geocode_cache.json) is reused across passes.
+          RANK_GEOCODE_MAX: "60"
+          RANK_GEOCODE_USER_AGENT: "dach-exec-job-alerts/1.0 (+https://github.com/${{ github.repository }})"
           TEST_ATTEMPTS: "3"
           TEST_MIN_RAW: "10"
           TEST_MIN_RANKED: "10"
@@ -205,6 +224,9 @@ jobs:
       - name: Re-rank after second pass
         run: python .github/scripts/rank_jobs.py
         continue-on-error: true
+        env:
+          RANK_GEOCODE_MAX: "60"
+          RANK_GEOCODE_USER_AGENT: "dach-exec-job-alerts/1.0 (+https://github.com/${{ github.repository }})"
 
       # ------------------------------------------------------------------
       # Stage 4: optional AI enrichment via GitHub Models REST API
