@@ -1,0 +1,7 @@
+target-version = "py312"
+line-length = 120
+
+[lint]
+# Start focused and high-signal; expand as the backlog is cleared.
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["E501"]  # long lines are common in the existing scraper; revisit later

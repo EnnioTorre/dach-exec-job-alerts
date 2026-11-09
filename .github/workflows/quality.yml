@@ -1,0 +1,38 @@
+name: quality
+
+on:
+  pull_request:
+    paths:
+      - "**/*.py"
+      - "ruff.toml"
+      - ".github/workflows/quality.yml"
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  secret-scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  lint:
+    name: Lint (ruff) — advisory
+    runs-on: ubuntu-latest
+    # Advisory until the existing lint backlog is triaged; does not block merges yet.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v5
+      - name: Run ruff
+        uses: astral-sh/ruff-action@v3
+        with:
+          args: "check --output-format=github"
