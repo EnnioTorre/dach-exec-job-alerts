@@ -42,6 +42,9 @@ _JUNK_PHRASES = (
 _DACH_COUNTRIES = {"österreich", "deutschland", "schweiz"}
 _SOUTH_TYROL_REGION = "südtirol"
 
+# Reference point for nearest-place selection in normalize_location.
+_VIENNA = (48.2082, 16.3738)
+
 
 def clean_location_parts(raw: str) -> list[str]:
     """
@@ -139,8 +142,18 @@ def _to_german_market(address: dict) -> tuple[str, str]:
     return region, country
 
 
+def _to_place(address: dict) -> str:
+    """Settlement name from a Nominatim `address` (German via accept-language=de):
+    first of city/town/village/municipality/suburb, else PLACEHOLDER. Never county/state."""
+    for key in ("city", "town", "village", "municipality", "suburb"):
+        val = (address.get(key) or "").strip()
+        if val:
+            return val
+    return PLACEHOLDER
+
+
 def _geocode_address_query(place: str) -> dict | None:
-    """One Nominatim addressdetails lookup. Returns {region, country, coords} or None."""
+    """One Nominatim addressdetails lookup. Returns {place, region, country, coords} or None."""
     try:
         resp = requests.get(
             _NOMINATIM_URL,
@@ -161,8 +174,14 @@ def _geocode_address_query(place: str) -> dict | None:
         if not isinstance(data, list) or not data:
             return None
         top = data[0]
-        region, country = _to_german_market(top.get("address") or {})
-        return {"region": region, "country": country, "coords": (float(top["lat"]), float(top["lon"]))}
+        address = top.get("address") or {}
+        region, country = _to_german_market(address)
+        return {
+            "place": _to_place(address),
+            "region": region,
+            "country": country,
+            "coords": (float(top["lat"]), float(top["lon"])),
+        }
     except (requests.RequestException, ValueError, KeyError, IndexError, TypeError) as exc:
         print(f"  address geocode failed for {place!r}: {exc}")
         return None
@@ -171,7 +190,7 @@ def _geocode_address_query(place: str) -> dict | None:
 def _geocode_address(place: str) -> dict | None:
     """
     Cached, budgeted, rate-limited addressdetails resolver. Returns
-    {region, country, coords} or None when disabled / budget-exhausted / failed.
+    {place, region, country, coords} or None when disabled / budget-exhausted / failed.
     Never raises.
     """
     key = (place or "").strip().lower()
@@ -215,6 +234,7 @@ def load_location_cache() -> None:
         for k, v in raw.items():
             if isinstance(v, dict) and "lat" in v and "lon" in v:
                 _LOCATION_CACHE[k] = {
+                    "place": v.get("place", PLACEHOLDER),
                     "region": v.get("region", PLACEHOLDER),
                     "country": v.get("country", PLACEHOLDER),
                     "coords": (float(v["lat"]), float(v["lon"])),
@@ -236,7 +256,13 @@ def save_location_cache() -> None:
         for k, v in _LOCATION_CACHE.items():
             if v:
                 lat, lon = v["coords"]
-                serializable[k] = {"region": v["region"], "country": v["country"], "lat": lat, "lon": lon}
+                serializable[k] = {
+                    "place": v.get("place", PLACEHOLDER),
+                    "region": v["region"],
+                    "country": v["country"],
+                    "lat": lat,
+                    "lon": lon,
+                }
             else:
                 serializable[k] = None
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
@@ -244,3 +270,43 @@ def save_location_cache() -> None:
             json.dump(serializable, f)
     except OSError:
         pass
+
+
+def _placeholder_location() -> dict:
+    return {
+        "place": PLACEHOLDER,
+        "region": PLACEHOLDER,
+        "country": PLACEHOLDER,
+        "coords": None,
+        "display": f"{PLACEHOLDER}, {PLACEHOLDER}, {PLACEHOLDER}",
+    }
+
+
+def normalize_location(raw: str) -> dict:
+    """
+    Turn a raw scraped location string into one standard structured location:
+    {place, region, country, coords, display} in German-market local form, with
+    PLACEHOLDER for unknown parts. Cleans + splits (clean_location_parts), resolves
+    each candidate via _geocode_address, picks the in-geography candidate closest to
+    Vienna (falling back to the best out-of-geography one so the caller can drop it),
+    and composes `display` = "place, region, country". Never raises; degrades to the
+    placeholder result when nothing resolves.
+    """
+    resolved = [rec for part in clean_location_parts(raw) if (rec := _geocode_address(part))]
+    if not resolved:
+        return _placeholder_location()
+
+    in_geo = [r for r in resolved if not _is_out_of_geo(r["country"], r["region"])]
+    pool = in_geo or resolved
+    winner = min(pool, key=lambda r: _haversine_km(_VIENNA[0], _VIENNA[1], r["coords"][0], r["coords"][1]))
+
+    place = winner.get("place", PLACEHOLDER)
+    region = winner.get("region", PLACEHOLDER)
+    country = winner.get("country", PLACEHOLDER)
+    return {
+        "place": place,
+        "region": region,
+        "country": country,
+        "coords": winner["coords"],
+        "display": f"{place}, {region}, {country}",
+    }
