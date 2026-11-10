@@ -27,6 +27,7 @@ from urllib.parse import parse_qs, parse_qsl, unquote, urlencode, urlparse, urlu
 
 import requests
 from bs4 import BeautifulSoup
+from locations import load_location_cache, normalize_location, save_location_cache
 
 try:
     import certifi
@@ -1890,6 +1891,23 @@ def _enrich_locations(jobs: list[dict]) -> None:
             j["location"] = recovered
 
 
+def _normalize_locations(jobs: list[dict]) -> None:
+    """
+    In-place: rewrite each row's location to one standard `place, region, country`
+    (German-market form) via normalize_location, and attach the structured fields
+    (place/region/country/coords) plus the composed display string. Filter/UI junk
+    degrades to the placeholder; never raises (one bad row must not abort the scrape).
+    """
+    for j in jobs:
+        norm = normalize_location(j.get("location", ""))
+        j["location"] = norm["display"]
+        j["place"] = norm["place"]
+        j["region"] = norm["region"]
+        j["country"] = norm["country"]
+        j["coords"] = norm["coords"]
+        j["display"] = norm["display"]
+
+
 def _market_lang_hint(url: str, source_name: str = "", title: str = "") -> str:
     """
     Language for a job-board *card* (Stepstone, karriere.at, jobs.ch) where the
@@ -2420,12 +2438,19 @@ def main() -> None:
         print(f"  ❌ LinkedIn ({linkedin_count}) <= Karriere ({karriere_count}) — check proxy sources")
     print(f"{'='*50}\n")
 
+    # Standardize every written row's location (place/region/country/coords/display),
+    # warming the per-place cache across runs.
+    jobs_out = all_jobs[:200]  # cap to limit downstream token use
+    load_location_cache()
+    _normalize_locations(jobs_out)
+    save_location_cache()
+
     output = {
         "date": str(date.today()),
         "stats": stats,
         "family_stats": family_stats,
         "deduped_source_stats": deduped_source_stats,
-        "jobs": all_jobs[:200],  # cap to limit downstream token use
+        "jobs": jobs_out,
     }
     out_path = "/tmp/jobs/jobs_raw.json"
     with open(out_path, "w", encoding="utf-8") as f:
