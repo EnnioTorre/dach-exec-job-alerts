@@ -702,3 +702,47 @@ class TestLocationEnrichment:
         scrape_jobs._enrich_locations(jobs)
         assert jobs[0]["location"] == "Austria"   # unchanged, no exception
 
+
+class TestNormalizeLocations:
+    _WELS = {
+        "place": "Wels", "region": "Oberösterreich", "country": "Österreich",
+        "coords": (48.1575, 14.0289), "display": "Wels, Oberösterreich, Österreich",
+    }
+
+    def test_scrape_normalizes_messy_location_to_display_and_fields(self, monkeypatch):
+        monkeypatch.setattr(scrape_jobs, "normalize_location", lambda raw: self._WELS)
+        rows = [{"location": "Wels,"}]
+        scrape_jobs._normalize_locations(rows)
+        assert rows[0]["location"] == "Wels, Oberösterreich, Österreich"
+
+    def test_scrape_normalization_attaches_structured_fields(self, monkeypatch):
+        monkeypatch.setattr(scrape_jobs, "normalize_location", lambda raw: self._WELS)
+        rows = [{"location": "Wels,"}]
+        scrape_jobs._normalize_locations(rows)
+        assert rows[0]["place"] == "Wels"
+        assert rows[0]["region"] == "Oberösterreich"
+        assert rows[0]["country"] == "Österreich"
+        assert rows[0]["coords"] == (48.1575, 14.0289)
+        assert rows[0]["display"] == "Wels, Oberösterreich, Österreich"
+
+    def test_scrape_normalization_rejects_filter_list_text(self, monkeypatch):
+        # Real normalize_location: a >MAX_LOCATION_PARTS filter list is rejected by
+        # the cleaner before any geocode (digest #121 role #4).
+        monkeypatch.setenv("RANK_GEOCODE", "false")
+        filter_list = (
+            "Steiermark,Wien,Vorarlberg,Kärnten,Niederösterreich,Burgenland,"
+            "Tirol,Salzburg,Österreich,Oberösterreich,"
+        )
+        rows = [{"location": filter_list}]
+        scrape_jobs._normalize_locations(rows)
+        assert rows[0]["location"] == "—, —, —"
+
+    def test_scrape_normalization_never_raises_on_bad_location(self, monkeypatch):
+        # A missing and a None location must degrade, not crash the scrape.
+        monkeypatch.setenv("RANK_GEOCODE", "false")
+        rows = [{"title": "X"}, {"location": None}]
+        scrape_jobs._normalize_locations(rows)  # must not raise
+        assert rows[0]["location"] == "—, —, —"
+        assert rows[1]["location"] == "—, —, —"
+
+
