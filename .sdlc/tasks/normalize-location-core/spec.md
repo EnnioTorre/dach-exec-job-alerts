@@ -1,6 +1,6 @@
 ---
 id: spec-normalize-location-core
-status: in-progress
+status: complete
 created: 2026-11-10
 parent: ../../prds/standardized-job-location/plan.md
 story: "Story 3 (R1): normalize_location() — geocode resolution, structured fields, nearest-to-Vienna"
