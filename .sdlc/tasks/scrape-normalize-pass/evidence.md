@@ -56,3 +56,10 @@ the real `normalize_location` on no-geocode paths with `RANK_GEOCODE=false`):
 - **Element-scoped extraction is out of scope** (stakeholder decision): role #4's filter list is
   rejected to `—, —, —` (junk gone, BAC-4); recovering its real location via parser changes is a later
   story (PRD open-decision #9, string-level for v1).
+- **Two-pass design — Story 5 is authoritative (gap-critic).** The pipeline is
+  scrape → AI pre-rank → rank → scrape_extra → rank-again. This post-scrape pass cleans the first-pass
+  rows; the **AI stage** (when `GITHUB_TOKEN` is set) may overwrite `location`, and **`scrape_extra`**
+  appends un-normalized rows after this pass — both are standardized by Story 5's rank-time
+  re-normalization (BAC-8). Story 4's visible digest benefit holds on the AI-off path (digest #121 was
+  AI-off). Carried to Story 5: re-normalize all rows, add `—, —, —` to rank's geocode-skip set, consume
+  precomputed `coords` (avoids the transitional scrape/rank double-geocode).

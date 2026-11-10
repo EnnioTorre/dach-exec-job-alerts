@@ -228,3 +228,25 @@ None at this level.
   clean display, so the digest improves immediately; S6 makes the field read explicit).
 - Changing `rank_jobs`'s geocoding or `_DACH_LOCATION_POINTS`, or any `normalize_location`/`locations.py`
   internals — reused as-is.
+
+### Pipeline interaction (two-pass design — authoritative pass is Story 5)
+
+The daily pipeline is **scrape → AI pre-rank → rank → scrape_extra → rank-again**
+([workflow](../../../.github/workflows/dach-exec-job-alerts.yml) L105/124/133/211/227). Story 4 is the
+**post-scrape** pass; two stages run *after* it and can leave rows un-standardized, which the plan's
+**Story 5 rank-time re-normalization (BAC-8)** is designed to cover by re-running `normalize_location`
+over **all** loaded rows:
+- **AI pre-rank** (`ai_pre_rank_enrich.py`, only when `GITHUB_TOKEN` is set) may overwrite `location`
+  with a model string. So on the AI-*on* path Story 4's cleaned `display` is not what the digest shows
+  until Story 5 re-normalizes post-AI. Story 4's visible benefit is guaranteed on the **AI-off** path —
+  which is digest [#121](https://github.com/EnnioTorre/dach-exec-job-alerts/issues/121) ("AI pre-rank
+  cleanup: ⚠️ No").
+- **`scrape_extra.py`** merges second-pass rows into `jobs_raw.json` *after* this pass with
+  `location: ""` and no structured fields; Story 5's re-normalization standardizes them at rank time.
+
+**Carry to Story 5 (noted, not fixed here):** re-normalize every loaded row (covers AI + scrape_extra);
+add the `—, —, —` placeholder to rank's geocode-skip set so it is not geocoded; consume the precomputed
+`coords` to avoid the scrape/rank double-geocode (rank's geocode cache keys were the raw strings and no
+longer match the display-form keys). Role #4's distance sub-score legitimately changes (the filter-list
+string falsely matched the `wien` token → 5.0; it now degrades to the placeholder) — an intended
+correctness effect of standardization.

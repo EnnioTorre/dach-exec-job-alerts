@@ -43,3 +43,9 @@ None. (Cache wiring + the explicit `display` field were specified and confirmed 
   runs placeholder past the budget and warm via the `actions/cache`.
 - **String-level only** (stakeholder decision): digest #121 role #4 → `—, —, —`; element-scoped
   real-location recovery is a later story.
+- **Two-pass design — Story 5 is authoritative (gap-critic review note).** Pipeline is
+  scrape → AI → rank → scrape_extra → rank. The AI stage (`GITHUB_TOKEN` set) may overwrite `location`
+  and `scrape_extra` appends un-normalized rows after this pass; Story 5's rank-time re-normalization
+  (BAC-8) standardizes both. Story 4's visible benefit holds on the AI-off path (digest #121). No code
+  change here — these are carried to Story 5 (re-normalize all rows; skip-geocode the placeholder;
+  consume `coords`).
