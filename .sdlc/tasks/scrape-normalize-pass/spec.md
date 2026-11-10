@@ -1,6 +1,6 @@
 ---
 id: spec-scrape-normalize-pass
-status: in-progress
+status: complete
 created: 2026-11-10
 parent: ../../prds/standardized-job-location/plan.md
 story: "Story 4: Apply normalization post-scrape (clean jobs_raw.json)"
