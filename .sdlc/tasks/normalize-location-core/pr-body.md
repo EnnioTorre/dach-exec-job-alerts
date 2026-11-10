@@ -19,13 +19,13 @@
 
 ## Verification
 
-**Evidence pack:** `.sdlc/tasks/normalize-location-core/evidence.md` (revision `dab585c`)
+**Evidence pack:** `.sdlc/tasks/normalize-location-core/evidence.md` (revision `a79be4c`)
 
 | Check | Result |
 |---|---|
 | Lint | pass (ruff, changed files) |
 | Build | pass (`py_compile`) |
-| Tests | 17 passed in `test_locations.py` (6 S1 + 6 S2 + 5 S3); full suite green |
+| Tests | 19 passed in `test_locations.py` (6 S1 + 6 S2 + 7 S3); full suite green |
 | Coverage | no threshold enforced |
 | Dependency CVE scan | not wired |
 | Secret scan | gitleaks runs blocking in CI (`quality.yml`); no secrets added |
@@ -44,3 +44,6 @@ None. (The resolver `place` extension was specified and confirmed before build.)
   5-key shape; Story 5 does the rank-time drop.
 - `normalize_location` is unused until Story 4 wires it into the scrape pass, so no runtime change at
   merge. Element-scoped recovery of filter-list rows (digest #121 role #4) is Story 4.
+- Review added two tests (the true placeholder-degrade path — which makes the never-raise security
+  claim actually verified — and in-geo-over-closer-out-of-geo selection). Known limitations (junk-token
+  spurious winner; per-call budget consumption) are documented for Story 4.

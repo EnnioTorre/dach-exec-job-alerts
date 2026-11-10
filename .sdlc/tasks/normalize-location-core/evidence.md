@@ -3,7 +3,7 @@ id: evidence-normalize-location-core
 spec: ./spec.md
 status: pass
 created: 2026-11-10
-revision: dab585c
+revision: a79be4c
 ---
 
 # Evidence Pack: `normalize_location()` — geocode resolution, structured fields, nearest-to-Vienna
@@ -20,7 +20,7 @@ runtime behaviour changes at merge.
 |-------|------|--------|--------|
 | Lint | ruff (`ruff.toml`, py312) | pass | `All checks passed!` on the two changed files |
 | Build / compile | `python3 -m py_compile` | pass | `locations.py` compiles |
-| Tests | pytest | pass | full suite green; `test_locations.py` = 17 passed (6 S1 + 6 S2 + 5 S3), <0.5s |
+| Tests | pytest | pass | full suite green; `test_locations.py` = 19 passed (6 S1 + 6 S2 + 7 S3), <0.5s |
 | Secret scan | gitleaks | CI-only | runs blocking in `.github/workflows/quality.yml`; no secrets introduced |
 
 Story-3 tests (resolver mocked via `monkeypatch.setattr(locations, "_geocode_address", …)`; no HTTP):
@@ -29,6 +29,8 @@ Story-3 tests (resolver mocked via `monkeypatch.setattr(locations, "_geocode_add
 - `test_normalize_multi_place_picks_closest_to_vienna` → BAC-5
 - `test_normalize_two_spellings_same_place_identical_output` → BAC-7
 - `test_normalize_out_of_geo_place_flagged` → BAC-6
+- `test_normalize_degrades_to_placeholder_when_nothing_resolves` → BAC-9 (added in review — verifies the never-raise degrade)
+- `test_normalize_prefers_in_geo_over_closer_out_of_geo` → BAC-5 (added in review)
 
 Two S2 record-shape tests updated for the new `place` key (resolve + cache round-trip).
 
@@ -57,3 +59,10 @@ Two S2 record-shape tests updated for the new `place` key (resolve + cache round
   such a row (element-scoped extraction) is Story 4, out of scope here.
 - `normalize_location` is unused until Story 4 wires it into `scrape_jobs.py`, so there is no runtime
   change at merge.
+
+**Known limitations (for Story 4, flagged by the gap-critic):** `normalize_location` geocodes every
+token the cleaner keeps — including deliberately-preserved non-place tokens (`"Engineering Jobs"`) — so
+a junk token Nominatim resolves in-geo could win the nearest-Vienna pick; the designed mitigation is
+Story 4's element-scoped extraction (the `countrycodes` bias already drops most junk). Each call also
+consumes up to `MAX_LOCATION_PARTS` of the shared geocode budget, so Story 4 must size the budget / warm
+the cache when wiring over a full scrape.
