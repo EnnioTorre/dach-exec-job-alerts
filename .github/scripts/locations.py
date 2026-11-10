@@ -153,7 +153,7 @@ def _to_place(address: dict) -> str:
 
 
 def _geocode_address_query(place: str) -> dict | None:
-    """One Nominatim addressdetails lookup. Returns {region, country, coords} or None."""
+    """One Nominatim addressdetails lookup. Returns {place, region, country, coords} or None."""
     try:
         resp = requests.get(
             _NOMINATIM_URL,
@@ -190,7 +190,7 @@ def _geocode_address_query(place: str) -> dict | None:
 def _geocode_address(place: str) -> dict | None:
     """
     Cached, budgeted, rate-limited addressdetails resolver. Returns
-    {region, country, coords} or None when disabled / budget-exhausted / failed.
+    {place, region, country, coords} or None when disabled / budget-exhausted / failed.
     Never raises.
     """
     key = (place or "").strip().lower()

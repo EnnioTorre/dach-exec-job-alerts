@@ -171,7 +171,8 @@ location or extracts the settlement). Everything they build on already exists in
 
 ## Verification Criteria
 
-The five plan tests (Level `CT`, Type `Functional`), all pure — the resolver is mocked via
+The five plan tests plus two added during review (the true degrade path and in-geo-over-out-of-geo
+selection), Level `CT`, Type `Functional`, all pure — the resolver is mocked via
 `monkeypatch.setattr(locations, "_geocode_address", …)` (unit-level, no HTTP, no cache). `test_locations.py`
 is extended with `TestNormalizeLocation`; the two S2 record-shape tests are updated for the new `place`
 key (not new test names — a shape change the extension requires).
@@ -185,6 +186,8 @@ key (not new test names — a shape change the extension requires).
 | `test_normalize_multi_place_picks_closest_to_vienna` | Functional | `"Thalheim bei Wels, Wien"` (both mocked with coords) ⇒ winner is Wien (nearest Vienna); `coords` + `display` are Wien's | Multi-location posting scored on the wrong place | BAC-5 |
 | `test_normalize_two_spellings_same_place_identical_output` | Functional | `"Wien,"` and `"Vienna, Austria"` (resolver mocked to the same canonical Vienna record) ⇒ identical result dict | Same place renders/scored inconsistently | BAC-7 |
 | `test_normalize_out_of_geo_place_flagged` | Functional | `"San Francisco, CA"` (resolver mocked → country `USA`) ⇒ result carries `country=="USA"` and `_is_out_of_geo(result["country"], result["region"]) is True` | Out-of-geography row not marked for the rank-time drop | BAC-6 |
+| `test_normalize_degrades_to_placeholder_when_nothing_resolves` | Functional | Resolver all-`None` **and** a `>MAX_LOCATION_PARTS` filter list (digest #121 role #4) ⇒ `{place,region,country:"—", coords:None, display:"—, —, —"}`, never raises | A geocoding outage / filter-list row crashes or leaks junk into the digest | BAC-9 |
+| `test_normalize_prefers_in_geo_over_closer_out_of_geo` | Functional | Bratislava (out-of-geo, closer to Vienna) + Graz (in-geo, farther) ⇒ winner is Graz | A nearer out-of-geography place wins over the real in-geo one | BAC-5 |
 
 ### System / Integration Tests (ST · SIT)
 None — pure composition; wiring is Stories 4–6.
@@ -215,7 +218,7 @@ response; they are only `.strip()`-ed into the `place` string, never used to bui
 
 | What it must do | Verified by |
 |---|---|
-| Degrade to the placeholder result (never raise) when the resolver returns `None` | `test_normalize_uses_placeholder_for_unknown_parts` (and the composition's `clean`→empty path) |
+| Degrade to the placeholder result (never raise) when the resolver returns `None` or the cleaner rejects a filter list | `test_normalize_degrades_to_placeholder_when_nothing_resolves` |
 
 ## Test Data Requirements
 
@@ -237,3 +240,11 @@ response; they are only `.strip()`-ed into the `place` string, never used to bui
 - Rendering `display` in the digest — Story 6.
 - Any change to `rank_jobs`'s geocoding, `_DACH_LOCATION_POINTS`, or the `_is_out_of_geo`/`_haversine_km`
   bodies — reused as-is.
+
+**Known limitation (deferred to Story 4):** `normalize_location` geocodes every token the cleaner keeps,
+including deliberately-preserved non-place tokens (e.g. `"Engineering Jobs"`); a junk token that Nominatim
+resolves in-geo could in principle win the nearest-to-Vienna selection. The designed mitigation is Story
+4's **element-scoped extraction** (take the posting's own location element, not page/title text); the
+`countrycodes=at,de,ch,it` bias already makes most junk tokens resolve to nothing. Separately, each call
+consumes up to `MAX_LOCATION_PARTS` of the shared geocode budget, so Story 4 must size the budget / warm
+the cache when wiring this over a full scrape.

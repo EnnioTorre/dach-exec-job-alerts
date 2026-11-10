@@ -191,3 +191,30 @@ class TestNormalizeLocation:
         assert result["country"] == "USA"
         assert locations._is_out_of_geo(result["country"], result["region"]) is True
 
+    def test_normalize_degrades_to_placeholder_when_nothing_resolves(self, monkeypatch):
+        placeholder = {
+            "place": locations.PLACEHOLDER, "region": locations.PLACEHOLDER,
+            "country": locations.PLACEHOLDER, "coords": None,
+            "display": f"{locations.PLACEHOLDER}, {locations.PLACEHOLDER}, {locations.PLACEHOLDER}",
+        }
+        # Nothing resolves (resolver returns None) -> placeholder, never raises.
+        monkeypatch.setattr(locations, "_geocode_address", lambda p: None)
+        assert locations.normalize_location("Someplace") == placeholder
+        # A filter/facet list (> MAX_LOCATION_PARTS) is rejected by the cleaner first (digest #121 role #4).
+        filter_list = (
+            "Steiermark,Wien,Vorarlberg,Kärnten,Niederösterreich,Burgenland,"
+            "Tirol,Salzburg,Österreich,Oberösterreich,"
+        )
+        assert locations.normalize_location(filter_list) == placeholder
+
+    def test_normalize_prefers_in_geo_over_closer_out_of_geo(self, monkeypatch):
+        # Bratislava (out-of-geo, ~55 km from Vienna) must lose to Graz (in-geo, ~145 km).
+        records = {
+            "bratislava": {"place": "Bratislava", "region": "Bratislavský kraj", "country": "Slowakei", "coords": (48.1486, 17.1077)},
+            "graz": {"place": "Graz", "region": "Steiermark", "country": "Österreich", "coords": (47.0707, 15.4395)},
+        }
+        monkeypatch.setattr(locations, "_geocode_address", lambda p: records[p.strip().lower()])
+        result = locations.normalize_location("Bratislava, Graz")
+        assert result["place"] == "Graz"
+        assert result["country"] == "Österreich"
+
