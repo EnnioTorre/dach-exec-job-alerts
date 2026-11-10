@@ -76,11 +76,11 @@ class TestGeocodeAddressDetails:
     def test_addressdetails_resolves_region_country_coords_for_place(self, monkeypatch):
         payload = [{
             "lat": "47.0707", "lon": "15.4395",
-            "address": {"state": "Steiermark", "country": "Österreich"},
+            "address": {"city": "Graz", "state": "Steiermark", "country": "Österreich"},
         }]
         monkeypatch.setattr(locations.requests, "get", lambda *a, **k: _FakeResp(200, payload))
         assert locations._geocode_address("Graz") == {
-            "region": "Steiermark", "country": "Österreich", "coords": (47.0707, 15.4395),
+            "place": "Graz", "region": "Steiermark", "country": "Österreich", "coords": (47.0707, 15.4395),
         }
 
     def test_geocode_failure_degrades_to_none(self, monkeypatch):
@@ -100,7 +100,7 @@ class TestGeocodeAddressDetails:
         path = tmp_path / "location_cache.json"
         monkeypatch.setenv("LOCATION_CACHE_PATH", str(path))
         locations._LOCATION_CACHE.clear()
-        hit = {"region": "Steiermark", "country": "Österreich", "coords": (47.0707, 15.4395)}
+        hit = {"place": "Graz", "region": "Steiermark", "country": "Österreich", "coords": (47.0707, 15.4395)}
         locations._LOCATION_CACHE["graz"] = hit
         locations._LOCATION_CACHE["nowhere"] = None  # negative cache entry
         locations.save_location_cache()
@@ -145,4 +145,49 @@ class TestGeocodeAddressDetails:
         assert rec["region"] == "Südtirol"
         assert rec["country"] == "Italien"
         assert locations._is_out_of_geo(rec["country"], rec["region"]) is False
+
+
+class TestNormalizeLocation:
+    def test_normalize_builds_place_region_country_display(self, monkeypatch):
+        rec = {"place": "Wels", "region": "Oberösterreich", "country": "Österreich", "coords": (48.1575, 14.0289)}
+        monkeypatch.setattr(locations, "_geocode_address", lambda p: rec)
+        result = locations.normalize_location("Wels,")
+        assert result["display"] == "Wels, Oberösterreich, Österreich"
+        assert result["place"] == "Wels"
+        assert result["region"] == "Oberösterreich"
+        assert result["country"] == "Österreich"
+        assert result["coords"] == (48.1575, 14.0289)
+
+    def test_normalize_uses_placeholder_for_unknown_parts(self, monkeypatch):
+        rec = {"place": locations.PLACEHOLDER, "region": "Steiermark", "country": "Österreich", "coords": (47.07, 15.44)}
+        monkeypatch.setattr(locations, "_geocode_address", lambda p: rec)
+        result = locations.normalize_location("Steiermark")
+        assert result["display"] == f"{locations.PLACEHOLDER}, Steiermark, Österreich"
+        assert result["place"] == locations.PLACEHOLDER
+
+    def test_normalize_multi_place_picks_closest_to_vienna(self, monkeypatch):
+        records = {
+            "thalheim bei wels": {"place": "Thalheim bei Wels", "region": "Oberösterreich", "country": "Österreich", "coords": (48.1619, 14.0186)},
+            "wien": {"place": "Wien", "region": "Wien", "country": "Österreich", "coords": (48.2082, 16.3738)},
+        }
+        monkeypatch.setattr(locations, "_geocode_address", lambda p: records[p.strip().lower()])
+        result = locations.normalize_location("Thalheim bei Wels, Wien")
+        assert result["place"] == "Wien"
+        assert result["coords"] == (48.2082, 16.3738)
+        assert result["display"] == "Wien, Wien, Österreich"
+
+    def test_normalize_two_spellings_same_place_identical_output(self, monkeypatch):
+        vienna = {"place": "Wien", "region": "Wien", "country": "Österreich", "coords": (48.2082, 16.3738)}
+        monkeypatch.setattr(locations, "_geocode_address", lambda p: vienna)
+        a = locations.normalize_location("Wien,")
+        b = locations.normalize_location("Vienna, Austria")
+        assert a == b
+        assert a["display"] == "Wien, Wien, Österreich"
+
+    def test_normalize_out_of_geo_place_flagged(self, monkeypatch):
+        sf = {"place": "San Francisco", "region": "California", "country": "USA", "coords": (37.7749, -122.4194)}
+        monkeypatch.setattr(locations, "_geocode_address", lambda p: sf)
+        result = locations.normalize_location("San Francisco, CA")
+        assert result["country"] == "USA"
+        assert locations._is_out_of_geo(result["country"], result["region"]) is True
 
