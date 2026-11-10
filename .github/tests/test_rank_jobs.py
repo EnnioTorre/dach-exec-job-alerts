@@ -505,3 +505,56 @@ class TestGeocoding:
         rank_jobs._load_geocode_cache()                     # no-op
         assert rank_jobs._GEOCODE_CACHE == {}
 
+
+class TestStandardizedLocationRanking:
+    def test_rank_uses_row_coords_for_distance_when_present(self):
+        # Coords at Vienna → nearest bucket; far coords → lower. Also tolerates
+        # the JSON list form of coords.
+        assert rank_jobs._location_distance_score({"coords": (48.2082, 16.3738)}) == 5.0
+        assert rank_jobs._location_distance_score({"coords": [37.7749, -122.4194]}) < 5.0
+
+    def test_rank_drops_out_of_geography_rows_from_shortlist(self):
+        assert rank_jobs._row_out_of_geo({"country": "USA", "region": "California"}) is True
+        assert rank_jobs._row_out_of_geo({"country": "Österreich", "region": "Wien"}) is False
+        assert rank_jobs._row_out_of_geo({"country": "Italien", "region": "Südtirol"}) is False
+        assert rank_jobs._row_out_of_geo({"country": "—", "region": "—"}) is False  # unknown kept
+        assert rank_jobs._row_out_of_geo({}) is False
+
+    def test_rank_two_spellings_same_place_same_score(self):
+        a = {"coords": (48.2082, 16.3738), "location": "Wien, Wien, Österreich"}
+        b = {"coords": (48.2082, 16.3738), "location": "Vienna, Vienna, Austria"}
+        assert rank_jobs._location_distance_score(a) == rank_jobs._location_distance_score(b)
+
+    def test_rank_renormalizes_ai_rewritten_location(self, monkeypatch):
+        norm = {
+            "place": "München", "region": "Bayern", "country": "Deutschland",
+            "coords": (48.1351, 11.5820), "display": "München, Bayern, Deutschland",
+        }
+        monkeypatch.setattr(rank_jobs, "normalize_location", lambda raw: norm)
+        ai_row = {"location": "Munich", "display": "München, Bayern, Deutschland"}  # AI rewrote location
+        untouched = {
+            "location": "Graz, Steiermark, Österreich", "display": "Graz, Steiermark, Österreich",
+            "coords": (47.0707, 15.4395),
+        }
+        rank_jobs._renormalize_rows([ai_row, untouched])
+        assert ai_row["display"] == "München, Bayern, Deutschland"
+        assert ai_row["country"] == "Deutschland"
+        assert untouched["coords"] == (47.0707, 15.4395)   # untouched, not re-normalized
+
+    def test_rank_preserves_existing_resolved_place_scores(self, monkeypatch):
+        def _boom(raw):
+            raise AssertionError("re-normalized an already-resolved row")
+
+        monkeypatch.setattr(rank_jobs, "normalize_location", _boom)
+        row = {
+            "location": "Graz, Steiermark, Österreich", "display": "Graz, Steiermark, Österreich",
+            "coords": (47.0707, 15.4395), "country": "Österreich",
+            "language_hint": "de", "title": "Head of Engineering",
+        }
+        before = rank_jobs.score_job(row)
+        rank_jobs._renormalize_rows([row])      # must NOT call normalize_location
+        after = rank_jobs.score_job(row)
+        assert row["coords"] == (47.0707, 15.4395)
+        assert before == after
+
+
