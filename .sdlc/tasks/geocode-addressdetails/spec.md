@@ -1,6 +1,6 @@
 ---
 id: spec-geocode-addressdetails
-status: in-progress
+status: complete
 created: 2026-11-09
 parent: ../../prds/standardized-job-location/plan.md
 story: "Story 2 (R1): Nominatim addressdetails resolver — region/country/coords per place"
