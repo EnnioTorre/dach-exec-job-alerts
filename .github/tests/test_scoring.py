@@ -6,7 +6,7 @@ Focus areas:
   - language / IT-management focus scoring
   - the weighted `score_job` formula (distance 35% / language 35% /
     IT relevance 30%)
-  - geocoding closure (budget, cache, HTTP path, persistent cache)
+  - geocoding closure (budget, cache, HTTP path, retry + fail-loud, persistent cache)
   - formula determinism + source-blindness guards
 
 Distance scoring is driven entirely by geolocation (no static coordinate
@@ -204,11 +204,22 @@ class TestGeocoding:
         monkeypatch.setattr(scoring, "_geocode", lambda loc: (48.2000, 15.6250))
         assert scoring.vienna_distance_score("Lower Austria") == 4.7
 
-    def test_geocode_failure_degrades_to_neutral(self, monkeypatch):
+    def test_geocode_miss_degrades_to_neutral(self, monkeypatch):
         monkeypatch.setattr(scoring, "_vienna_origin", _VIENNA_COORDS)
         monkeypatch.setattr(scoring, "_geocode", lambda loc: None)
-        # Geolocation fails → no distance → neutral 2.4 (no country fallback).
+        # A legitimate miss (resolver responded, no match) → unknown → neutral 2.4.
         assert scoring.vienna_distance_score("Hintertupfing, Austria") == 2.4
+
+    def test_geocode_outage_raises_rather_than_fabricating(self, monkeypatch):
+        # A geolocation OUTAGE must fail the run, never fabricate a value (ADR-0002).
+        monkeypatch.setattr(scoring, "_vienna_origin", _VIENNA_COORDS)
+
+        def _down(loc):
+            raise scoring.GeocodeUnavailable("nominatim down")
+
+        monkeypatch.setattr(scoring, "_geocode", _down)
+        with pytest.raises(scoring.GeocodeUnavailable):
+            scoring.vienna_distance_score("Somewhere")
 
     def test_geocode_result_cached_second_call_not_refetched(self, monkeypatch):
         monkeypatch.setenv("RANK_GEOCODE", "true")
@@ -254,27 +265,88 @@ class TestGeocoding:
         )
         assert scoring._geocode_query("Vienna") == (48.2082, 16.3738)
 
-    def test_geocode_query_non_200_returns_none(self, monkeypatch):
+    def test_geocode_query_5xx_raises_unavailable(self, monkeypatch):
         monkeypatch.setattr(scoring.requests, "get", lambda *a, **k: _FakeResp(500, []))
+        with pytest.raises(scoring.GeocodeUnavailable):
+            scoring._geocode_query("Vienna")
+
+    def test_geocode_query_429_raises_unavailable(self, monkeypatch):
+        monkeypatch.setattr(scoring.requests, "get", lambda *a, **k: _FakeResp(429, []))
+        with pytest.raises(scoring.GeocodeUnavailable):
+            scoring._geocode_query("Vienna")
+
+    def test_geocode_query_4xx_returns_none(self, monkeypatch):
+        # A non-429 client error is not a transient outage → treat as no result.
+        monkeypatch.setattr(scoring.requests, "get", lambda *a, **k: _FakeResp(400, []))
         assert scoring._geocode_query("Vienna") is None
 
     def test_geocode_query_empty_result_returns_none(self, monkeypatch):
         monkeypatch.setattr(scoring.requests, "get", lambda *a, **k: _FakeResp(200, []))
         assert scoring._geocode_query("Nowhere") is None
 
-    def test_geocode_query_request_exception_returns_none(self, monkeypatch):
+    def test_geocode_query_request_exception_raises_unavailable(self, monkeypatch):
         def _raise(*a, **k):
             raise scoring.requests.RequestException("boom")
 
         monkeypatch.setattr(scoring.requests, "get", _raise)
-        assert scoring._geocode_query("Vienna") is None
+        with pytest.raises(scoring.GeocodeUnavailable):
+            scoring._geocode_query("Vienna")
 
-    def test_geocode_query_malformed_payload_returns_none(self, monkeypatch):
+    def test_geocode_query_malformed_payload_raises_unavailable(self, monkeypatch):
         monkeypatch.setattr(
             scoring.requests, "get",
             lambda *a, **k: _FakeResp(200, [{"lat": "not-a-number", "lon": "x"}]),
         )
-        assert scoring._geocode_query("Vienna") is None
+        with pytest.raises(scoring.GeocodeUnavailable):
+            scoring._geocode_query("Vienna")
+
+    # --- retry + fail-loud (ADR-0002) ---
+
+    def test_geocode_retries_then_succeeds(self, monkeypatch):
+        monkeypatch.setenv("RANK_GEOCODE", "true")
+        monkeypatch.setattr(scoring.time, "sleep", lambda *_: None)
+        attempts: list[str] = []
+
+        def flaky(loc):
+            attempts.append(loc)
+            if len(attempts) < 2:
+                raise scoring.GeocodeUnavailable("transient")
+            return (48.0, 16.0)
+
+        monkeypatch.setattr(scoring, "_geocode_query", flaky)
+        assert scoring._geocode("Somewhere") == (48.0, 16.0)
+        assert len(attempts) == 2            # failed once, then succeeded on retry
+
+    def test_geocode_raises_after_exhausting_retries(self, monkeypatch):
+        monkeypatch.setenv("RANK_GEOCODE", "true")
+        monkeypatch.setattr(scoring.time, "sleep", lambda *_: None)
+        attempts: list[str] = []
+
+        def always_down(loc):
+            attempts.append(loc)
+            raise scoring.GeocodeUnavailable("down")
+
+        monkeypatch.setattr(scoring, "_geocode_query", always_down)
+        with pytest.raises(scoring.GeocodeUnavailable):
+            scoring._geocode("Somewhere")
+        assert len(attempts) == scoring._GEOCODE_MAX_ATTEMPTS
+
+    def test_origin_outage_fails_the_run(self, monkeypatch):
+        # Cold cache + geocoding enabled + Nominatim down → the Vienna origin
+        # itself cannot resolve, so the run fails loudly rather than scoring every
+        # row neutral behind the scenes (ADR-0002; closes the pass-2 cold-cache gap).
+        scoring._GEOCODE_CACHE.clear()               # drop the seeded origin
+        monkeypatch.setattr(scoring, "_vienna_origin", None)
+        monkeypatch.setenv("RANK_GEOCODE", "true")
+        monkeypatch.setattr(scoring.time, "sleep", lambda *_: None)
+
+        def always_down(loc):
+            raise scoring.GeocodeUnavailable("down")
+
+        monkeypatch.setattr(scoring, "_geocode_query", always_down)
+        row = {"title": "Head of Engineering", "coords": _VIENNA_COORDS, "language_hint": "en"}
+        with pytest.raises(scoring.GeocodeUnavailable):
+            scoring.score_job(row)
 
     # --- persistent cache (_load_geocode_cache / _save_geocode_cache) ---
 
@@ -290,6 +362,19 @@ class TestGeocoding:
         scoring._load_geocode_cache()
         assert scoring._GEOCODE_CACHE["graz"] == (47.0707, 15.4395)
         assert scoring._GEOCODE_CACHE["nowhere"] is None  # miss survives the round-trip
+
+    def test_geocode_cache_round_trips_umlaut_origin_key(self, monkeypatch, tmp_path):
+        # The warm-restore design hinges on the geolocated Vienna origin key
+        # ("wien, österreich") surviving the ensure_ascii JSON save/load.
+        path = tmp_path / "geo.json"
+        monkeypatch.setenv("RANK_GEOCODE_CACHE_PATH", str(path))
+        scoring._GEOCODE_CACHE.clear()
+        key = scoring._VIENNA_PLACE.strip().lower()
+        scoring._GEOCODE_CACHE[key] = (48.2082, 16.3738)
+        scoring._save_geocode_cache()
+        scoring._GEOCODE_CACHE.clear()
+        scoring._load_geocode_cache()
+        assert scoring._GEOCODE_CACHE[key] == (48.2082, 16.3738)
 
     def test_geocode_cache_load_tolerates_malformed_file(self, monkeypatch, tmp_path):
         path = tmp_path / "geo.json"

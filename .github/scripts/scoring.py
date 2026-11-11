@@ -6,7 +6,8 @@ score-and-pool stage (``pool_jobs``) so every row is scored by one formula.
 focus, clamped to [1, 5]. Location distance is the great-circle distance from a
 geolocated Vienna origin to the row's geolocated coordinates — the row's
 precomputed coords when present, else a Nominatim geocode of the location string
-(bounded, cached, rate-limited, degrading to a neutral score when unresolvable).
+(bounded, cached, rate-limited). A legitimate miss or disabled geocoding scores
+neutral; a Nominatim outage fails the run rather than fabricating a value (ADR-0002).
 """
 
 import json
@@ -47,18 +48,26 @@ def _origin() -> tuple[float, float] | None:
     return _vienna_origin
 
 
-# Geocoding resolves a location string to coordinates via
-# OpenStreetMap Nominatim so distance-from-Vienna reflects true proximity. On by
-# default; set RANK_GEOCODE=false to disable (distances then degrade to neutral).
-# Bounded per run, cached per location, spaced to honour the OSM usage policy
-# (<=1 req/s), and fully degrading — any failure returns None.
+# Geocoding resolves a location string to coordinates via OpenStreetMap Nominatim
+# so distance-from-Vienna reflects true proximity. On by default; set
+# RANK_GEOCODE=false to disable. Bounded per run, cached per location, spaced to
+# honour the OSM usage policy (<=1 req/s). Per ADR-0002 a transport/service
+# failure is retried and then RAISED (the run fails loudly) rather than
+# fabricating a value; a legitimate miss (200 + no match), operator-disable, or an
+# exhausted budget returns None (an honest "unknown", scored neutral).
 _NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 _DEFAULT_GEOCODE_UA = (
     "dach-exec-job-alerts/1.0 (+https://github.com/EnnioTorre/dach-exec-job-alerts)"
 )
+_GEOCODE_MAX_ATTEMPTS = 3
 _GEOCODE_CACHE: dict[str, tuple[float, float] | None] = {}
 _geocode_used = 0
 _last_geocode_ts = 0.0
+
+
+class GeocodeUnavailable(RuntimeError):
+    """Nominatim failed to respond after retries. Per ADR-0002 the run fails loud
+    rather than fabricating a fallback coordinate."""
 
 
 def _geocoding_enabled() -> bool:
@@ -66,7 +75,10 @@ def _geocoding_enabled() -> bool:
 
 
 def _geocode_query(location: str) -> tuple[float, float] | None:
-    """One Nominatim lookup. Returns (lat, lon), or None on any failure."""
+    """One Nominatim lookup. Returns (lat, lon); None for a legitimate miss (200 +
+    no match, or a non-429 4xx). Raises GeocodeUnavailable on a transient/service
+    failure (request error, 429, 5xx, or a malformed 200 body) so the caller can
+    retry and ultimately fail the run (ADR-0002)."""
     try:
         resp = requests.get(
             _NOMINATIM_URL,
@@ -80,19 +92,31 @@ def _geocode_query(location: str) -> tuple[float, float] | None:
             headers={"User-Agent": os.getenv("RANK_GEOCODE_USER_AGENT", _DEFAULT_GEOCODE_UA)},
             timeout=(3.05, 10),
         )
-        if resp.status_code != 200:
-            return None
+    except requests.RequestException as exc:
+        raise GeocodeUnavailable(f"nominatim request failed for {location!r}: {exc}") from exc
+
+    if resp.status_code == 429 or resp.status_code >= 500:
+        raise GeocodeUnavailable(f"nominatim HTTP {resp.status_code} for {location!r}")
+    if resp.status_code != 200:
+        return None  # other 4xx: a client error, not a transient outage
+    try:
         data = resp.json()
-        if not isinstance(data, list) or not data:
-            return None
+    except ValueError as exc:
+        raise GeocodeUnavailable(f"nominatim invalid JSON for {location!r}: {exc}") from exc
+    if not isinstance(data, list):
+        raise GeocodeUnavailable(f"nominatim unexpected payload for {location!r}")
+    if not data:
+        return None  # legitimate miss
+    try:
         return (float(data[0]["lat"]), float(data[0]["lon"]))
-    except (requests.RequestException, ValueError, KeyError, IndexError, TypeError) as exc:
-        print(f"  geocode failed for {location!r}: {exc}")
-        return None
+    except (KeyError, IndexError, TypeError, ValueError) as exc:
+        raise GeocodeUnavailable(f"nominatim malformed entry for {location!r}: {exc}") from exc
 
 
 def _geocode(location: str) -> tuple[float, float] | None:
-    """Cached, budgeted, rate-limited geocoding. None when disabled/exhausted/failed."""
+    """Cached, budgeted, rate-limited geocoding. Returns None when disabled, the
+    per-run budget is spent, or the location is a legitimate miss. Retries a
+    transient Nominatim failure and then raises GeocodeUnavailable (ADR-0002)."""
     key = (location or "").strip().lower()
     if not key:
         return None
@@ -105,16 +129,26 @@ def _geocode(location: str) -> tuple[float, float] | None:
     if _geocode_used >= int(os.getenv("RANK_GEOCODE_MAX", "50")):
         return None
 
-    # Honour Nominatim's <=1 req/s usage policy.
-    elapsed = time.monotonic() - _last_geocode_ts
-    if elapsed < 1.0:
-        time.sleep(1.0 - elapsed)
-
     _geocode_used += 1
-    _last_geocode_ts = time.monotonic()
-    coords = _geocode_query(location)
-    _GEOCODE_CACHE[key] = coords
-    return coords
+    last_exc: GeocodeUnavailable | None = None
+    for attempt in range(_GEOCODE_MAX_ATTEMPTS):
+        # Honour Nominatim's <=1 req/s usage policy, on every (re)try.
+        elapsed = time.monotonic() - _last_geocode_ts
+        if elapsed < 1.0:
+            time.sleep(1.0 - elapsed)
+        _last_geocode_ts = time.monotonic()
+        try:
+            coords = _geocode_query(location)
+        except GeocodeUnavailable as exc:
+            last_exc = exc
+            print(f"  geocode attempt {attempt + 1} failed for {location!r}: {exc}")
+            continue
+        _GEOCODE_CACHE[key] = coords
+        return coords
+
+    raise GeocodeUnavailable(
+        f"geocoding unavailable for {location!r} after {_GEOCODE_MAX_ATTEMPTS} attempts"
+    ) from last_exc
 
 
 def _geocode_cache_path() -> str:

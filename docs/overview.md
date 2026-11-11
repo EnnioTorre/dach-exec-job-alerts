@@ -5,7 +5,7 @@
 DACH (Austria / Germany / Switzerland) executive tech-job pipeline. A scheduled GitHub Actions
 workflow scrapes CTO / VP-Engineering / Head-of-Engineering listings from ~39 configured sources,
 ranks them with a weighted scoring formula (deterministic given a cached, bounded geocoding step
-that degrades to country constants), and publishes a daily digest as a
+that fails loudly on a geocoding outage rather than fabricating a fallback — [ADR-0002](adrs/ADR-0002-no-synthetic-fallback-external-resources.md)), and publishes a daily digest as a
 GitHub issue. Optional AI stages (GitHub Models) enrich and extend the run but never block it —
 the deterministic pipeline works standalone.
 
