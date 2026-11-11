@@ -84,3 +84,33 @@ Applies to `build-task` (and any fix/commit flow). Takes precedence over the ski
   strip comment lines first.** A comment that merely mentions the key is a false match.
   *Why: PR #146's workflow guard test for "no continue-on-error" first tripped on a comment that named
   it; fixed by filtering `#` lines before the assertion.*
+
+## Rules added 2026-11-11 (Story 9 / PR #152)
+
+## Aggregates over multiple key-sources
+
+- **When a per-key aggregate/funnel mixes counts from two key-sources, compute totals AND rows over the
+  UNION of their key-sets — never one set's keys only.** Iterating a single key-set silently drops the
+  other set's members and desynchronises the totals, breaking a monotonic funnel (e.g. `passed <
+  shortlisted`). Fall back to a neutral value for the missing dimension (`stats.get(src, 0)`).
+  *Why: `create_issue._source_perf_funnel_section` summed `total_reached`/`total_passed` and iterated
+  rows over `source_stats` keys only, while `shortlisted`/`Top 15` counted all sources; a pool/shortlist
+  source absent from scrape stats (MCP/second-pass merge) was dropped and undercounted — a non-monotonic
+  "honest" funnel flagged by the gap-critic on PR #152.*
+
+## Legacy fallbacks behind a replacement
+
+- **When you add a replacement path with a legacy fallback, isolate the legacy path in its own
+  self-contained, clearly-labelled (`LEGACY` docstring) function — never inline it as a branch.** Keep
+  its helpers local to it so a cleanup can delete the function and its single dispatch branch in one
+  move once the replacement fully supersedes it.
+  *Why: Story 9 first inlined the legacy deduped-unique table to minimise the diff; the human asked to
+  separate it for a clean future removal — reworked into `_source_perf_legacy_section` on PR #152.*
+
+## Test every new conditional branch
+
+- **Every new conditional rendering/output branch ships with a test that exercises it.** A new `if`
+  that emits a different shape (extra columns, alternate format) is a distinct output contract and must
+  have its own fixture + assertion.
+  *Why: the `with_ai` variant of the funnel table (extra AI Quality/Recommendation columns) shipped
+  untested and could have broken undetected — flagged by the test-reviewer on PR #152.*
