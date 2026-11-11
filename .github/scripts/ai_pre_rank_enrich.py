@@ -8,7 +8,7 @@ Uses GitHub Models API to infer and correct per-job metadata before deterministi
   - relevance label (high/medium/low/reject)
   - URL quality (job_ad/listing/search/unknown)
 
-Reads  /tmp/jobs/jobs_raw.json
+Reads  /tmp/jobs/jobs_pool.json (the bounded pool) — falls back to jobs_raw.json
 Writes /tmp/jobs/jobs_raw_ai.json
 
 This step is best-effort and safe to skip.
@@ -28,6 +28,7 @@ from github_models import complete_json
 MAX_TOKENS = 4000
 
 RAW_IN = "/tmp/jobs/jobs_raw.json"
+POOL_IN = "/tmp/jobs/jobs_pool.json"
 RAW_AI_OUT = "/tmp/jobs/jobs_raw_ai.json"
 
 MAX_JOBS = 120
@@ -35,7 +36,10 @@ BATCH_SIZE = 20
 
 
 def load_raw() -> dict:
-    with open(RAW_IN, encoding="utf-8") as f:
+    # Prefer the bounded merit pool (Story 4/5); fall back to the full scrape if
+    # the pool stage was skipped.
+    path = POOL_IN if os.path.exists(POOL_IN) else RAW_IN
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
