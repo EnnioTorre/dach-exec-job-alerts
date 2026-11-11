@@ -201,6 +201,9 @@ _last_searxng_call = 0.0    # monotonic timestamp of the previous SearXNG call
 # we fetch it to detect the true language for cards whose title looks English.
 # Bounded per run (cost / 429 protection) and cached per job id.
 _LINKEDIN_LANG_CACHE: dict[str, str] = {}
+# Posting body text retained from the same guest fetch, per job id (transient;
+# read by the ranker's IT-context check, never persisted to the digest).
+_LINKEDIN_BODY_CACHE: dict[str, str] = {}
 _linkedin_lang_enrich_used = 0
 
 # Generic job-page language enrichment for German-market boards (Stepstone,
@@ -2050,6 +2053,7 @@ def _fetch_linkedin_job_language(job_id: str) -> str | None:
         return None
     if job_id in _LINKEDIN_LANG_CACHE:
         return _LINKEDIN_LANG_CACHE[job_id] or None
+    _LINKEDIN_BODY_CACHE.setdefault(job_id, "")
 
     global _linkedin_lang_enrich_used
     cap = int(os.getenv("SCRAPER_LINKEDIN_LANG_ENRICH_MAX", "60"))
@@ -2061,6 +2065,7 @@ def _fetch_linkedin_job_language(job_id: str) -> str | None:
     html = fetch(url, retries=1)
     if not html:
         _LINKEDIN_LANG_CACHE[job_id] = ""  # remember the failed attempt
+        _LINKEDIN_BODY_CACHE[job_id] = ""
         return None
 
     soup = BeautifulSoup(html, "html.parser")
@@ -2078,6 +2083,7 @@ def _fetch_linkedin_job_language(job_id: str) -> str | None:
     # Prefer a reliable language tag; otherwise detect from the description body.
     lang = _language_tag_from_html(html) or (_body_language(text) if text else None)
     _LINKEDIN_LANG_CACHE[job_id] = lang or ""
+    _LINKEDIN_BODY_CACHE[job_id] = text or ""
     return lang
 
 
@@ -2144,6 +2150,8 @@ def parse_linkedin_guest_api(html: str, source_name: str) -> list[dict]:
             "publish_date": "",
             "salary_text": "",
             "language_hint": lang_hint,
+            # Transient: retained posting body for the ranker's IT-context check.
+            "body_text": _LINKEDIN_BODY_CACHE.get(job_id, ""),
         })
 
     return jobs
