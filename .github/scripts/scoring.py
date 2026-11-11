@@ -74,6 +74,17 @@ def _geocoding_enabled() -> bool:
     return os.getenv("RANK_GEOCODE", "true").strip().lower() not in {"0", "false", "no"}
 
 
+def _geocode_budget() -> int:
+    # Per-stage budget: the score+pool stage caps itself via POOL_GEOCODE_MAX so it
+    # never doubles the ranker's Nominatim volume; falls back to RANK_GEOCODE_MAX,
+    # then 50. Non-numeric -> 50 (never raises). Mirrors locations._location_geocode_budget.
+    raw = os.getenv("POOL_GEOCODE_MAX") or os.getenv("RANK_GEOCODE_MAX") or "50"
+    try:
+        return int(raw)
+    except ValueError:
+        return 50
+
+
 def _geocode_query(location: str) -> tuple[float, float] | None:
     """One Nominatim lookup. Returns (lat, lon); None for a legitimate miss (200 +
     no match, or a non-429 4xx). Raises GeocodeUnavailable on a transient/service
@@ -126,7 +137,7 @@ def _geocode(location: str) -> tuple[float, float] | None:
         return None
 
     global _geocode_used, _last_geocode_ts
-    if _geocode_used >= int(os.getenv("RANK_GEOCODE_MAX", "50")):
+    if _geocode_used >= _geocode_budget():
         return None
 
     _geocode_used += 1
