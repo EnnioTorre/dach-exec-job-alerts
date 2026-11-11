@@ -17,13 +17,13 @@
 
 ## Verification
 
-**Evidence pack:** `.sdlc/tasks/rank-consume-coords-drop-geo/evidence.md` (revision `7e2c937`)
+**Evidence pack:** `.sdlc/tasks/rank-consume-coords-drop-geo/evidence.md` (revision `c0a0707`)
 
 | Check | Result |
 |---|---|
 | Lint | pass (ruff, changed files) |
 | Build | pass (`py_compile`; imports `locations`) |
-| Tests | `TestStandardizedLocationRanking` 5 passed; full suite green |
+| Tests | `TestStandardizedLocationRanking` 6 passed; full suite green |
 | Coverage | no threshold enforced |
 | Dependency CVE scan | not wired |
 | Secret scan | gitleaks runs blocking in CI (`quality.yml`); no secrets added |
@@ -43,3 +43,7 @@ None.
   Role #9 "United Kingdom" dropped; role #4 `—, —, —` kept.
 - Re-normalize trigger `display != location` preserves already-resolved rows' scores (BAC-9), verified
   by a test that raises if `normalize_location` is called on such a row.
+- **Review fixes (gap-critic):** out-of-geo drop moved **before** the relevance/relaxed-fallback (a late
+  drop left the shortlist short of target); `_location_distance_score` hardened against malformed `coords`
+  from `jobs_raw_ai.json` (degrades to the string path, never aborts the rank); two-spellings test made
+  falsifiable; added a coords-absent/malformed fallback test.

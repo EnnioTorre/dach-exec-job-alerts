@@ -3,7 +3,7 @@ id: evidence-rank-consume-coords-drop-geo
 spec: ./spec.md
 status: pass
 created: 2026-11-10
-revision: 7e2c937
+revision: c0a0707
 ---
 
 # Evidence Pack: Rank consumes coords, re-normalizes after AI, drops out-of-geography
@@ -21,15 +21,16 @@ known out-of-geography rows from the shortlist.
 |-------|------|--------|--------|
 | Lint | ruff (`ruff.toml`, py312) | pass | `All checks passed!` on the two changed files |
 | Build / compile | `python3 -m py_compile` | pass | `rank_jobs.py` compiles; imports `locations` cleanly |
-| Tests | pytest | pass | full suite green; `test_rank_jobs.py::TestStandardizedLocationRanking` = 5 passed |
+| Tests | pytest | pass | full suite green; `test_rank_jobs.py::TestStandardizedLocationRanking` = 6 passed |
 | Secret scan | gitleaks | CI-only | runs blocking in `.github/workflows/quality.yml`; no secrets introduced |
 
 Story-5 tests (`rank_jobs.normalize_location` mocked for the re-normalize cases; no HTTP):
 - `test_rank_uses_row_coords_for_distance_when_present` → BAC-5
 - `test_rank_drops_out_of_geography_rows_from_shortlist` → BAC-6
-- `test_rank_two_spellings_same_place_same_score` → BAC-7
+- `test_rank_two_spellings_same_place_same_score` → BAC-7 (falsifiable: differing string-path scores)
 - `test_rank_renormalizes_ai_rewritten_location` → BAC-8
 - `test_rank_preserves_existing_resolved_place_scores` → BAC-9
+- `test_rank_falls_back_to_location_when_no_coords` → BAC-9 (coords-absent / malformed-coords degrade)
 
 ## Not verified
 
@@ -55,3 +56,11 @@ Story-5 tests (`rank_jobs.normalize_location` mocked for the re-normalize cases;
   ladder (`_distance_to_score`, extracted verbatim), falling back to the string path otherwise — so no
   regression for rows lacking coords and no scrape/rank double-geocode. The all-placeholder location is
   never geocoded (`_distance_from_vienna_km` guard).
+- **Review fixes (gap-critic):** the out-of-geo drop now runs **before** the relevance/relaxed-fallback,
+  so the shortlist tops up to target from a geo-clean pool (a late drop would leave it short, and
+  deterministically short on `test_scraper_loop` retries). `_location_distance_score` validates `coords`
+  is a 2-length numeric sequence and degrades to the string path otherwise, so a malformed `coords` from
+  the AI-influenceable `jobs_raw_ai.json` cannot abort the (unwrapped) scoring loop.
+- **Known operational note (carried):** rank's own geocode budget (`RANK_GEOCODE_MAX`) and the
+  re-normalize's `LOCATION_GEOCODE_MAX` are independent counters, so rank can issue up to ~2× the budget
+  of Nominatim calls — bounded, cached, and only on AI/second-pass rows; operators cap each via its env.
