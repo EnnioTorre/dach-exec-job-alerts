@@ -59,10 +59,10 @@ table** (`# | Role | Company | Location | Lang | Score`, title links to the job)
 
 | Rule | Code location |
 |---|---|
-| Score = `0.35·location + 0.35·language + 0.30·IT-relevance`, clamped [1.0, 5.0] | `score_job` rank_jobs.py:600 |
-| Location score by Haversine distance from Vienna (≤25km→5.0 … >900km→1.8) | `vienna_distance_score` rank_jobs.py:522 |
-| Language: en=5.0, de=3.0, other=1.2 | `language_score` rank_jobs.py:539 |
-| Role fit: mgmt+IT=5.0 … non-IT=1.0 | `it_management_focus_score` rank_jobs.py:559 |
+| Score = `0.35·location + 0.35·language + 0.30·IT-relevance`, clamped [1.0, 5.0] | `score_job` scoring.py |
+| Location score by distance from a geolocated Vienna origin (≤25km→5.0 … >900km→1.8) | `vienna_distance_score` scoring.py |
+| Language: en=5.0, de=3.0, other=1.2 | `language_score` scoring.py |
+| Role fit: mgmt+IT=5.0 … non-IT=1.0 | `it_management_focus_score` scoring.py |
 | English roles preferred on ties / reorder | `rank_jobs.py main()` L694 |
 | Per-source cap ≤50% of list (min 10) for diversity | `rank_jobs.py main()` L713 |
 | Digest shows Top 15 | `format_body` create_issue.py:185 |

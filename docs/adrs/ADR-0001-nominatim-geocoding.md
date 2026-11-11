@@ -50,18 +50,23 @@ server-side geocoding in the ranking stage, called with the project's existing `
 
 ## Consequences
 
-**Positive:** precise, discriminating location scores for arbitrary DACH cities without a
-hand-maintained coordinate list; no new dependency or secret; graceful degradation preserves the
-pipeline's always-ships-a-digest guarantee.
+> ⚠️ **Superseded in part by [ADR-0002](ADR-0002-no-synthetic-fallback-external-resources.md).** The
+> country-constant fallback and the "always ships a digest on a geocoding outage" stance below no
+> longer hold: a Nominatim outage now **fails the run** rather than fabricating a coordinate; a
+> legitimate miss or `RANK_GEOCODE=false` leaves the distance *unknown* (neutral). The static
+> per-country constants are removed. The remaining consequences (network dependency, warm-cache
+> reproducibility) still apply.
 
-**Negative / trade-offs:** the ranking stage now has a network dependency, so scores are reproducible
-*given a warm geocode cache* (persisted across runs via Actions cache) and degrade deterministically
-to country constants when geocoding is unavailable. A cold cache, or a location that falls past the
-per-run budget in an early pass, may be scored on the country fallback until the cache warms — the
-final re-rank pass that builds the digest uses the most-filled cache. The public Nominatim service
-has no SLA; if it is unreachable the digest silently reverts to coarser country-level scoring for
-affected rows. The project's "deterministic ranking" guideline is read as *deterministic given the
-cache*, not independent of external state.
+**Positive:** precise, discriminating location scores for arbitrary DACH cities without a
+hand-maintained coordinate list; no new dependency or secret.
+
+**Negative / trade-offs:** the ranking stage has a network dependency, so scores are reproducible
+*given a warm geocode cache* (persisted across runs via Actions cache). A cold cache, or a location
+that falls past the per-run budget in an early pass, leaves that location's distance *unknown*
+(neutral) until the cache warms — the final re-rank pass that builds the digest uses the most-filled
+cache. The public Nominatim service has no SLA; if it is **unreachable the run fails loud** (ADR-0002)
+rather than silently reverting to coarser scoring. The project's "deterministic ranking" guideline is
+read as *deterministic given the cache*, not independent of external state.
 
 ## References
 

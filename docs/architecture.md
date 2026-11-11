@@ -66,7 +66,7 @@ Communication direction is strictly downstream through files. The only "upstream
 | Decision | Rationale |
 |---|---|
 | JSON files in `/tmp/jobs/` as the only inter-stage contract | Stages stay independent and individually runnable/testable; no shared process state |
-| AI stages are `continue-on-error` and optional | Deterministic pipeline must always ship a digest; AI is additive, never load-bearing |
+| AI stages are `continue-on-error` and optional | AI is additive, never load-bearing; the deterministic pipeline ships without it (though a hard external-resource outage fails loud per ADR-0002) |
 | Parsers never raise (return `[]` + log) | One failing source must not abort the run; pipeline degrades gracefully |
 | Source registry externalized to `sources.json` | Add/remove scrape targets without touching Python; validated at load time |
 | Pre-emptive token-bucket rate limiting per domain | Avoids 429s entirely rather than retrying after them; Google throttled hardest (~0.02 req/s) |
