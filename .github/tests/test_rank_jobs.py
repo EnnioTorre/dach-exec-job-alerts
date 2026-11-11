@@ -12,6 +12,9 @@ Focus areas:
 These functions are pure and side-effect free, so no mocking is needed.
 """
 
+import json
+
+import position_filter
 import pytest
 import rank_jobs
 
@@ -112,6 +115,61 @@ class TestIsRelevant:
             job = {"title": title, "application_url": "https://acme.com/jobs/123",
                    "company": "Acme Software GmbH"}
             assert rank_jobs.is_relevant(job) is True, title
+
+
+class TestConfigDrivenFilter:
+    """BAC-2/3/4/10: the role filter reads its lists from position_filter.json."""
+
+    def test_in_focus_leadership_title_is_relevant(self):
+        for title in ("Head of Platform Engineering", "Chief Technology Officer (CTO)"):
+            job = {"title": title, "application_url": "https://acme.com/jobs/123",
+                   "company": "Acme Software GmbH"}
+            assert rank_jobs.is_relevant(job) is True, title
+
+    def test_off_focus_ic_excluded_from_shortlist(self):
+        # Individual-contributor titles never pass the strict (shortlist) gate.
+        for title in ("Backend Developer", "MLOps / Platform Engineer"):
+            job = {"title": title, "application_url": "https://acme.com/jobs/123",
+                   "company": "Acme Software GmbH"}
+            assert rank_jobs.is_relevant(job) is False, title
+
+    def test_non_it_discipline_excluded(self):
+        job = {"title": "Head of Mechanical Engineering",
+               "application_url": "https://acme.com/jobs/123", "company": "Acme Software GmbH"}
+        assert rank_jobs.is_relevant(job) is False
+
+    def test_ambiguous_title_excluded_without_it_context(self):
+        # Generic title, no software/IT signal in title or company.
+        for title in ("Head of Engineering", "Head of Product"):
+            job = {"title": title, "application_url": "https://acme.com/jobs/123",
+                   "company": "ENPULSION"}
+            assert rank_jobs.is_relevant(job) is False, title
+
+    def test_filter_reads_role_terms_from_config(self, tmp_path, monkeypatch):
+        # A sentinel leadership title present only in a temp config must qualify,
+        # proving the filter reads via the loader, not deleted inline lists.
+        cfg = {
+            "in_focus_roles": ["head of zorptech"],
+            "domain_terms": ["zorptech"],
+            "excluded_areas": ["sales"],
+            "non_it_excluded": ["mechanical"],
+            "management_terms": ["head"],
+            "individual_contributor_markers": ["engineer"],
+            "it_signal_terms": ["zorptech"],
+            "generic_engineering_terms": ["engineer"],
+            "search_keyword_sets": {"x": "zorptech"},
+        }
+        p = tmp_path / "position_filter.json"
+        p.write_text(json.dumps(cfg), encoding="utf-8")
+        job = {"title": "Head of Zorptech", "application_url": "https://acme.com/jobs/123"}
+
+        # The shipped config does not know the sentinel title.
+        assert rank_jobs.is_relevant(job) is False
+        # Re-point the loaded config; the filter now accepts it.
+        monkeypatch.setattr(
+            position_filter, "POSITION_FILTER", position_filter.load_position_filter(str(p))
+        )
+        assert rank_jobs.is_relevant(job) is True
 
 
 class TestIsRelevantRelaxed:

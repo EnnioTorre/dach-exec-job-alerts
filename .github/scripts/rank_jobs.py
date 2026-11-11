@@ -15,6 +15,7 @@ from datetime import date
 from pathlib import Path
 from urllib.parse import urlparse
 
+import position_filter
 import requests
 from locations import (
     PLACEHOLDER,
@@ -38,134 +39,9 @@ LANGUAGE_SCORE_LOW = 1.2
 # Relevance filter
 # ---------------------------------------------------------------------------
 
-ROLE_KEYWORDS = [
-    "cto",
-    "chief technology officer",
-    "engineer",
-    "software engineer",
-    "devops engineer",
-    "platform engineer",
-    "cloud engineer",
-    "site reliability engineer",
-    "sre engineer",
-    "backend engineer",
-    "infrastructure engineer",
-    "head of engineering",
-    "head of software",
-    "head of software engineering",
-    "head of platform",
-    "head of platform engineering",
-    "head of cloud",
-    "head of cloud engineering",
-    "head of digitalization",
-    "head of data",
-    "head of devops",
-    "head of sre",
-    "head of infrastructure",
-    "engineering manager",
-    "platform engineering manager",
-    "cloud engineering manager",
-    "director of engineering",
-    "director of platform engineering",
-    "director of cloud engineering",
-    "vp engineering",
-    "vp of engineering",
-    "vice president engineering",
-    "engineering lead",
-    "technical director",
-    # German technical engineer terms
-    "softwareentwickler",
-    "entwicklungsingenieur",
-    "devops engineer",
-    "plattform engineer",
-    "cloud engineer",
-    "site reliability engineer",
-    "sre engineer",
-]
-
-DOMAIN_KEYWORDS = [
-    "engineering",
-    "software",
-    "platform",
-    "cloud",
-    "devops",
-    "sre",
-    "site reliability",
-    "infrastructure",
-    "backend",
-    "data platform",
-    "data",
-    "digitalization",
-]
-
-EXCLUDE_KEYWORDS = [
-    "sales",
-    "vertrieb",
-    "key account",
-    "kundendienst",
-    "innendienst",
-    "industrial",
-    "electrical",
-    "eletrical",
-    "elektro",
-    "elektrotechnik",
-    "electromechanical",
-    "quality",
-    "landtechnik",
-    "zeichner",
-    "cnc",
-]
-
-# Non-IT engineering disciplines / industries. A title mentioning any of these
-# is a hardware/mechanical/industrial role, not a software/IT role, so it is
-# rejected outright. (These complement EXCLUDE_KEYWORDS, which targets non-
-# engineering functions like sales/quality.) Matched on the TITLE only, with
-# word boundaries, so a software role at an industrial-sounding company is not
-# wrongly dropped.
-NON_IT_EXCLUDE_KEYWORDS = [
-    "manufacturing",
-    "mechanical",
-    "electrical",
-    "electronics",
-    "electronic",
-    "chemical",
-    "telecom",
-    "telecommunications",
-    "automotive",
-    "aerospace",
-    "construction",
-    "civil",
-    "industrial",
-    "plant",
-    "factory",
-    "production",
-    "hardware",
-    # German equivalents
-    "maschinenbau",
-    "sondermaschinenbau",
-    "mechatronik",
-    "elektrotechnik",
-    "elektronik",
-    "fertigung",
-    "produktion",
-    "luftfahrt",
-    "chemie",
-    "automobil",
-    "anlagenbau",
-]
-
-MANAGEMENT_KEYWORDS = [
-    "head",
-    "manager",
-    "director",
-    "vp",
-    "vice president",
-    "lead",
-    "leitung",
-    "leiter",
-    "chief",
-    "cto",
-]
+# Role-rule keyword lists now live in .github/config/position_filter.json
+# (loaded via position_filter.POSITION_FILTER); the data-integrity lists below
+# (job-URL / non-job-title / bad-URL patterns) stay inline.
 
 JOB_URL_HINTS = [
     "/jobs/",
@@ -213,89 +89,13 @@ def _contains_keyword(text: str, keyword: str) -> bool:
 def _contains_any(text: str, keywords: list[str]) -> bool:
     return any(_contains_keyword(text, kw) for kw in keywords)
 
-TECH_IC_KEYWORDS = [
-    "software engineer",
-    "software developer",
-    "platform engineer",
-    "cloud engineer",
-    "cloud systems engineer",
-    "devops engineer",
-    "site reliability engineer",
-    "sre engineer",
-    "backend engineer",
-    "infrastructure engineer",
-    "softwareentwickler",
-    "entwicklungsingenieur",
-    "devops",
-    "platform engineering",
-    "cloud engineering",
-    "site reliability",
-    "sre",
-    "backend",
-    "infrastructure",
-]
-
-# Explicit software/IT markers. A role only counts as IT when one of these
-# appears in the title or company — this is what separates a real software
-# "Head of Engineering" from a mechanical/aerospace/industrial one (whose
-# title is textually identical). Matched with word boundaries.
-IT_SIGNAL_KEYWORDS = [
-    "software",
-    "softwareentwickler",
-    "cloud",
-    "platform",
-    "plattform",
-    "devops",
-    "devsecops",
-    "sre",
-    "site reliability",
-    "infrastructure",
-    "backend",
-    "frontend",
-    "fullstack",
-    "full stack",
-    "data",
-    "digital",
-    "digitalis",
-    "digitalisierung",
-    "cyber",
-    "security",
-    "web",
-    "saas",
-    "kubernetes",
-    "developer",
-    "entwickler",
-    "it",
-    "it services",
-    "information technology",
-    "machine learning",
-    "artificial intelligence",
-    "iot",
-    "tech lead",
-    "technology",
-    "cto",
-    "linux",
-    "python",
-    "java",
-]
-
-# Generic (discipline-agnostic) engineering terms. On their own these do NOT
-# prove a role is IT — they gate down to a middling relevance score unless an
-# IT_SIGNAL keyword is also present.
-GENERIC_ENGINEERING_KEYWORDS = [
-    "engineer",
-    "engineering",
-    "entwicklung",
-    "technical",
-    "technik",
-]
-
 
 def _has_it_signal(job: dict) -> bool:
     """True when the title or company carries an explicit software/IT signal."""
     title = (job.get("title") or "").lower()
     company = (job.get("company") or "").lower()
-    return _contains_any(title, IT_SIGNAL_KEYWORDS) or _contains_any(company, IT_SIGNAL_KEYWORDS)
+    it_signal = position_filter.POSITION_FILTER["it_signal_terms"]
+    return _contains_any(title, it_signal) or _contains_any(company, it_signal)
 
 
 def _hard_reject_common(title: str, url: str, ai_rel: str, ai_url_quality: str) -> bool:
@@ -345,17 +145,18 @@ def is_relevant(job: dict) -> bool:
 
     # If URL lacks typical job path hints, require stronger job-title signal.
     has_job_url_hint = any(h in url for h in JOB_URL_HINTS)
-    if any(kw in title for kw in EXCLUDE_KEYWORDS):
+    pf = position_filter.POSITION_FILTER
+    if any(kw in title for kw in pf["excluded_areas"]):
         return False
 
     # Reject non-IT engineering disciplines (mechanical/electrical/industrial/…).
-    if _contains_any(title, NON_IT_EXCLUDE_KEYWORDS):
+    if _contains_any(title, pf["non_it_excluded"]):
         return False
 
     cto_like = bool(re.search(r"\bcto\b", title)) or "chief technology officer" in title
-    has_role = any(kw in title for kw in ROLE_KEYWORDS)
-    has_domain = any(kw in title for kw in DOMAIN_KEYWORDS)
-    has_management = _contains_any(title, MANAGEMENT_KEYWORDS)
+    has_role = any(kw in title for kw in pf["in_focus_roles"])
+    has_domain = any(kw in title for kw in pf["domain_terms"])
+    has_management = _contains_any(title, pf["management_terms"])
 
     # Filter obvious category/listing pages that are not concrete job ads.
     if "karriere.at" in url:
@@ -397,15 +198,16 @@ def is_relevant_relaxed(job: dict) -> bool:
 
     if _hard_reject_common(title, url, ai_rel, ai_url_quality):
         return False
-    if any(kw in title for kw in EXCLUDE_KEYWORDS):
+    pf = position_filter.POSITION_FILTER
+    if any(kw in title for kw in pf["excluded_areas"]):
         return False
-    if _contains_any(title, NON_IT_EXCLUDE_KEYWORDS):
+    if _contains_any(title, pf["non_it_excluded"]):
         return False
 
     # Allow strong leadership or clear tech-IC terms even without full strict role+domain pair.
-    has_mgmt = _contains_any(title, MANAGEMENT_KEYWORDS)
-    has_domain = _contains_any(title, DOMAIN_KEYWORDS)
-    has_tech_ic = _contains_any(title, TECH_IC_KEYWORDS)
+    has_mgmt = _contains_any(title, pf["management_terms"])
+    has_domain = _contains_any(title, pf["domain_terms"])
+    has_tech_ic = _contains_any(title, pf["individual_contributor_markers"])
     cto_like = bool(re.search(r"\bcto\b", title)) or "chief technology officer" in title
 
     if not (cto_like or (has_mgmt and has_domain) or has_tech_ic):
@@ -728,13 +530,14 @@ def it_management_focus_score(title: str) -> float:
     1.0: explicitly non-IT indicators
     """
     t = title.lower()
+    pf = position_filter.POSITION_FILTER
 
-    if _contains_any(t, EXCLUDE_KEYWORDS) or _contains_any(t, NON_IT_EXCLUDE_KEYWORDS):
+    if _contains_any(t, pf["excluded_areas"]) or _contains_any(t, pf["non_it_excluded"]):
         return 1.0
 
-    has_it_signal = _contains_any(t, IT_SIGNAL_KEYWORDS)
-    has_generic_eng = _contains_any(t, GENERIC_ENGINEERING_KEYWORDS)
-    has_management = _contains_any(t, MANAGEMENT_KEYWORDS)
+    has_it_signal = _contains_any(t, pf["it_signal_terms"])
+    has_generic_eng = _contains_any(t, pf["generic_engineering_terms"])
+    has_management = _contains_any(t, pf["management_terms"])
 
     # Management / leadership roles always rank above individual contributors.
     if has_management and has_it_signal:
