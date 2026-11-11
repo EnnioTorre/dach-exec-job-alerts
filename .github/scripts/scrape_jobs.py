@@ -2416,8 +2416,8 @@ def main() -> None:
     _enrich_locations(all_jobs)
 
     # Authoritative per-source usefulness: how many de-duplicated jobs each
-    # source contributed to the full pool (computed BEFORE the [:200] downstream
-    # cap so late-listed sources are not falsely reported as dead weight).
+    # source contributed to the full pool (computed over the whole deduped set,
+    # which is now also what is written — no downstream cap).
     deduped_source_stats = _count_by(all_jobs, lambda j: j.get("source_name", "unknown"))
     family_stats = _count_by(all_jobs, _source_family)
 
@@ -2440,7 +2440,7 @@ def main() -> None:
 
     # Standardize every written row's location (place/region/country/coords/display),
     # warming the per-place cache across runs.
-    jobs_out = all_jobs[:200]  # cap to limit downstream token use
+    jobs_out = all_jobs  # no cap: every deduped row flows to the score+pool stage (pool_jobs.py)
     load_location_cache()
     _normalize_locations(jobs_out)
     save_location_cache()
