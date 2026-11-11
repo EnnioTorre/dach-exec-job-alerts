@@ -164,6 +164,119 @@ def _source_perf_funnel_section(data: dict, stats: dict, jobs: list[dict],
     return out
 
 
+def _source_perf_legacy_section(data: dict, stats: dict, jobs: list[dict],
+                                digest_jobs: list[dict]) -> list[str]:
+    """LEGACY fallback — the deduped-unique Source-Performance table for a
+    pre-Story-8 `jobs_ranked.json` that carries no `ranked_funnel`. Fully
+    self-contained (its own tallies, no shared helpers) so a cleanup can delete
+    this function and its one call site in `format_body` once every artifact
+    carries the funnel. Do not add new behaviour here."""
+    def _count_by_source(items: list[dict]) -> dict:
+        counts: dict[str, int] = {}
+        for j in items:
+            src = j.get("source_name", "unknown")
+            counts[src] = counts.get(src, 0) + 1
+        return counts
+
+    def _yield_str(scraped: int, useful: int) -> str:
+        if scraped <= 0:
+            return "—"
+        return f"{round(100 * useful / scraped)}%"
+
+    ai_src_map = {
+        s["source"]: s
+        for s in (data.get("ai_enrichment") or {}).get("source_analysis", [])
+    }
+    unique_by_source: dict = data.get("deduped_source_stats", {}) or {}
+    shortlist_by_source = _count_by_source(jobs)
+    top15_by_source = _count_by_source(digest_jobs)
+    has_unique = bool(unique_by_source)
+
+    active_sources = sum(1 for c in stats.values() if c > 0)
+    if has_unique:
+        productive_sources = sum(1 for s in stats if unique_by_source.get(s, 0) > 0)
+        dead_weight = [s for s, c in stats.items() if c > 0 and unique_by_source.get(s, 0) == 0]
+    else:
+        productive_sources = sum(1 for s in stats if shortlist_by_source.get(s, 0) > 0)
+        dead_weight = [s for s, c in stats.items() if c > 0 and shortlist_by_source.get(s, 0) == 0]
+    total_scraped = sum(stats.values())
+    total_unique = sum(unique_by_source.values()) if has_unique else sum(shortlist_by_source.values())
+
+    out = [
+        "## 📊 Source Performance",
+        "",
+        f"**{len(stats)}** sources configured · **{active_sources}** returned listings · "
+        f"**{productive_sources}** contributed unique jobs.",
+        f"Funnel: **{total_scraped}** scraped → **{total_unique}** unique (after filter + dedup) "
+        f"→ **{len(jobs)}** shortlisted → **{len(digest_jobs)}** in the Top 15 digest.",
+        "",
+        "_Unique = de-duplicated jobs the source contributed (the real usefulness signal). "
+        "Shortlist = made the final ranked pool. Yield = Unique ÷ Scraped. "
+        "Sources are ranked by usefulness (Unique)._",
+        "",
+    ]
+
+    ordered = sorted(
+        stats.items(),
+        key=lambda x: (
+            unique_by_source.get(x[0], 0),
+            shortlist_by_source.get(x[0], 0),
+            x[1],
+        ),
+        reverse=True,
+    )
+
+    if ai_src_map:
+        out += [
+            "| Source | Scraped | Unique | Shortlist | Top 15 | Yield | AI Quality | Recommendation |",
+            "|--------|--------:|-------:|----------:|-------:|------:|------------|----------------|",
+        ]
+        for src, scraped in ordered:
+            unique = unique_by_source.get(src, 0)
+            shortlist = shortlist_by_source.get(src, 0)
+            top15 = top15_by_source.get(src, 0)
+            ai_info = ai_src_map.get(src, {})
+            quality = ai_info.get("quality_rating", "—")
+            rec = ai_info.get("recommendation", "—")
+            note = ai_info.get("note", "")
+            rec_str = f"{rec} — {note}" if note else rec
+            flag = " 🏆" if top15 else (" ⚠️" if scraped > 0 and unique == 0 else "")
+            out.append(
+                f"| `{src}`{flag} | {scraped} | {unique} | {shortlist} | {top15} | "
+                f"{_yield_str(scraped, unique)} | {quality}/5 | {rec_str} |"
+            )
+    else:
+        out += [
+            "| Source | Scraped | Unique | Shortlist | Top 15 | Yield |",
+            "|--------|--------:|-------:|----------:|-------:|------:|",
+        ]
+        for src, scraped in ordered:
+            unique = unique_by_source.get(src, 0)
+            shortlist = shortlist_by_source.get(src, 0)
+            top15 = top15_by_source.get(src, 0)
+            flag = " 🏆" if top15 else (" ⚠️" if scraped > 0 and unique == 0 else "")
+            out.append(
+                f"| `{src}`{flag} | {scraped} | {unique} | {shortlist} | {top15} | "
+                f"{_yield_str(scraped, unique)} |"
+            )
+
+    if dead_weight:
+        preview = ", ".join(f"`{s}`" for s in dead_weight[:12])
+        more = f" (+{len(dead_weight) - 12} more)" if len(dead_weight) > 12 else ""
+        out += [
+            "",
+            f"⚠️ **Dead weight** ({len(dead_weight)} scraped but contributed 0 unique jobs): "
+            f"{preview}{more}",
+        ]
+
+    out += [
+        "",
+        "_🏆 = contributed at least one role to the Top 15 · "
+        "⚠️ = scraped but contributed nothing unique (all duplicates/filtered)._",
+    ]
+    return out
+
+
 def format_body(data: dict) -> str:
     today = data.get("date", str(date.today()))
     jobs: list[dict] = data.get("jobs", [])
@@ -249,132 +362,16 @@ def format_body(data: dict) -> str:
 
     # ---- Source performance table ----
     # Prefer the Story-8 per-source/per-family funnel (pool→reached→passed→
-    # shortlisted); fall back to the legacy deduped-unique table below when a
-    # pre-Story-8 jobs_ranked.json has no ranked_funnel.
-    funnel_section = _source_perf_funnel_section(data, stats, jobs, digest_jobs)
-    if funnel_section is not None:
-        lines += funnel_section
-        lines += [
-            "",
-            "---",
-            f"*Auto-generated by [dach-exec-job-alerts](https://github.com/{repo}/actions) · {today}*",
-        ]
-        return "\n".join(lines)
-
-    # ---- Source performance table (legacy fallback) ----
-    # Show the true funnel per source, not just the raw scrape count:
-    #   Scraped    → what the source pulled in (raw, pre-dedup)
-    #   Unique     → de-duplicated jobs it contributed to the pool (the real
-    #                "what was useful" signal; from rank_jobs deduped_source_stats)
-    #   Shortlist  → survived into the final ranked pool (data["jobs"], top-N capped)
-    #   Top 15     → made the final digest above
-    # A source that scrapes a lot but contributes 0 Unique is dead weight;
-    # a source with high Unique but 0 Shortlist just ranked below the cutoff.
-    ai_src_map = {
-        s["source"]: s
-        for s in (data.get("ai_enrichment") or {}).get("source_analysis", [])
-    }
-
-    def _count_by_source(items: list[dict]) -> dict:
-        counts: dict[str, int] = {}
-        for j in items:
-            src = j.get("source_name", "unknown")
-            counts[src] = counts.get(src, 0) + 1
-        return counts
-
-    # Prefer the ranker's deduped per-source counts; fall back to shortlist if absent.
-    unique_by_source: dict = data.get("deduped_source_stats", {}) or {}
-    shortlist_by_source = _count_by_source(jobs)
-    top15_by_source = _count_by_source(digest_jobs)
-    has_unique = bool(unique_by_source)
-
-    active_sources = sum(1 for c in stats.values() if c > 0)
-    if has_unique:
-        productive_sources = sum(1 for s in stats if unique_by_source.get(s, 0) > 0)
-        dead_weight = [s for s, c in stats.items() if c > 0 and unique_by_source.get(s, 0) == 0]
-    else:
-        productive_sources = sum(1 for s in stats if shortlist_by_source.get(s, 0) > 0)
-        dead_weight = [s for s, c in stats.items() if c > 0 and shortlist_by_source.get(s, 0) == 0]
-    total_scraped = sum(stats.values())
-    total_unique = sum(unique_by_source.values()) if has_unique else sum(shortlist_by_source.values())
+    # shortlisted). The legacy deduped-unique table is a self-contained fallback
+    # for a pre-Story-8 jobs_ranked.json with no ranked_funnel; it lives in
+    # `_source_perf_legacy_section` so a future cleanup can delete that function
+    # and this branch in one move once every artifact carries the funnel.
+    section = _source_perf_funnel_section(data, stats, jobs, digest_jobs)
+    if section is None:
+        section = _source_perf_legacy_section(data, stats, jobs, digest_jobs)
+    lines += section
 
     lines += [
-        "## 📊 Source Performance",
-        "",
-        f"**{len(stats)}** sources configured · **{active_sources}** returned listings · "
-        f"**{productive_sources}** contributed unique jobs.",
-        f"Funnel: **{total_scraped}** scraped → **{total_unique}** unique (after filter + dedup) "
-        f"→ **{len(jobs)}** shortlisted → **{len(digest_jobs)}** in the Top 15 digest.",
-        "",
-        "_Unique = de-duplicated jobs the source contributed (the real usefulness signal). "
-        "Shortlist = made the final ranked pool. Yield = Unique ÷ Scraped. "
-        "Sources are ranked by usefulness (Unique)._",
-        "",
-    ]
-
-    # Order by usefulness: Unique desc, then Shortlist desc, then Scraped desc.
-    ordered = sorted(
-        stats.items(),
-        key=lambda x: (
-            unique_by_source.get(x[0], 0),
-            shortlist_by_source.get(x[0], 0),
-            x[1],
-        ),
-        reverse=True,
-    )
-
-    def _yield_str(scraped: int, useful: int) -> str:
-        if scraped <= 0:
-            return "—"
-        return f"{round(100 * useful / scraped)}%"
-
-    if ai_src_map:
-        lines += [
-            "| Source | Scraped | Unique | Shortlist | Top 15 | Yield | AI Quality | Recommendation |",
-            "|--------|--------:|-------:|----------:|-------:|------:|------------|----------------|",
-        ]
-        for src, scraped in ordered:
-            unique = unique_by_source.get(src, 0)
-            shortlist = shortlist_by_source.get(src, 0)
-            top15 = top15_by_source.get(src, 0)
-            ai_info = ai_src_map.get(src, {})
-            quality = ai_info.get("quality_rating", "—")
-            rec = ai_info.get("recommendation", "—")
-            note = ai_info.get("note", "")
-            rec_str = f"{rec} — {note}" if note else rec
-            flag = " 🏆" if top15 else (" ⚠️" if scraped > 0 and unique == 0 else "")
-            lines.append(
-                f"| `{src}`{flag} | {scraped} | {unique} | {shortlist} | {top15} | "
-                f"{_yield_str(scraped, unique)} | {quality}/5 | {rec_str} |"
-            )
-    else:
-        lines += [
-            "| Source | Scraped | Unique | Shortlist | Top 15 | Yield |",
-            "|--------|--------:|-------:|----------:|-------:|------:|",
-        ]
-        for src, scraped in ordered:
-            unique = unique_by_source.get(src, 0)
-            shortlist = shortlist_by_source.get(src, 0)
-            top15 = top15_by_source.get(src, 0)
-            flag = " 🏆" if top15 else (" ⚠️" if scraped > 0 and unique == 0 else "")
-            lines.append(
-                f"| `{src}`{flag} | {scraped} | {unique} | {shortlist} | {top15} | "
-                f"{_yield_str(scraped, unique)} |"
-            )
-
-    if dead_weight:
-        preview = ", ".join(f"`{s}`" for s in dead_weight[:12])
-        more = f" (+{len(dead_weight) - 12} more)" if len(dead_weight) > 12 else ""
-        lines += [
-            "",
-            f"⚠️ **Dead weight** ({len(dead_weight)} scraped but contributed 0 unique jobs): "
-            f"{preview}{more}",
-        ]
-
-    lines += [
-        "",
-        "_🏆 = contributed at least one role to the Top 15 · "
-        "⚠️ = scraped but contributed nothing unique (all duplicates/filtered)._",
         "",
         "---",
         f"*Auto-generated by [dach-exec-job-alerts](https://github.com/{repo}/actions) · {today}*",
