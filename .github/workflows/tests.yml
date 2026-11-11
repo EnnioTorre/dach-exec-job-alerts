@@ -6,12 +6,14 @@ on:
     paths:
       - ".github/scripts/**"
       - ".github/tests/**"
+      - ".github/config/**"
       - "pytest.ini"
       - ".github/workflows/tests.yml"
   pull_request:
     paths:
       - ".github/scripts/**"
       - ".github/tests/**"
+      - ".github/config/**"
       - "pytest.ini"
       - ".github/workflows/tests.yml"
   workflow_dispatch:
