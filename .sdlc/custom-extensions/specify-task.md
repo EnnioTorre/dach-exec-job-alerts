@@ -34,3 +34,12 @@ Applies to `specify-task`. Takes precedence over the skill's defaults. Also see
   `in_focus_roles`; the copy carried IC/engineer titles the PRD lists as "not in focus" (leadership
   only), the human reviewer rejected it, and the gap-critic found no story owned the narrowing —
   PR #132 (plan R2).*
+
+## Rules added 2026-11-11
+
+- **Before writing an ADR number or an env-var / knob name into a spec (or accepting one from the
+  plan), verify it is not already used in the repo** — grep `docs/adrs/` for the ADR number and the
+  codebase for the env var — and reconcile a collision (renumber / rename) before building.
+  *Why: Story 4's plan assigned the pipeline ADR to ADR-0002 (already the fail-loud ADR) and the budget
+  knob to LOCATION_GEOCODE_MAX (already used by `locations.py`); caught at specify-task and fixed via
+  revise-plan R4 to ADR-0003 / POOL_GEOCODE_MAX before building.*

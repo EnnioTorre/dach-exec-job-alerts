@@ -72,3 +72,15 @@ Applies to `build-task` (and any fix/commit flow). Takes precedence over the ski
   *Why: PR #140's fail-loud rework made ADR-0001's "degrade to country constants / always ships a
   digest" Consequences false; the header was marked superseded but the Consequences paragraph and
   `patterns.md`/`architecture.md` stances were left stale and re-flagged on pass 3.*
+
+## Test a new stage's main() and orchestration, not just the helpers
+
+- **When adding a new stage / entry-point script, test `main()` and the orchestration — file I/O, the
+  fail-loud `try/finally`, and any index-keyed stats — not only the pure helpers.** Pure-helper tests
+  stay green while a broken `main()` / envelope / indexing path ships silently.
+  *Why: PR #145's `pool_jobs.py` had the pool-building helpers tested but `main()` / `_build_envelope` /
+  `_pool_stats` uncovered — the gap-critic flagged the orchestration + `jobs[i]` index path as unverified.*
+- **When text-asserting a workflow/config file for the ABSENCE of a key (e.g. `continue-on-error`),
+  strip comment lines first.** A comment that merely mentions the key is a false match.
+  *Why: PR #146's workflow guard test for "no continue-on-error" first tripped on a comment that named
+  it; fixed by filtering `#` lines before the assertion.*

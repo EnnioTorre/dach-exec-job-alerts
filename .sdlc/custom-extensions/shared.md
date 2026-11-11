@@ -90,3 +90,8 @@ the pattern that fits:
   *Why: ADR-0002 fail-loud was implemented in `scoring.py`, but the Stage-3c `continue-on-error`
   workflow step and `test_scraper_loop.py`'s retry swallowed/amplified it end-to-end — caught by the
   gap-critic on PR #140 pass 3 and carved into Story 12.*
+- **For a split/sequential PR, after the base PR merges to `main`, rebase the dependent branch onto
+  `main` before review/merge** (sibling to the stacked-PR retarget rule above). A branch cut before its
+  base landed carries stale sibling files, so its own code/docs premise may not hold until rebased.
+  *Why: PR #145 (pool stage) was branched before PR #144 (cap removal) merged, so `scrape_jobs.py` on
+  it still had the `[:200]` cap — contradicting the pool's "cap removed" docstring until rebased onto main.*
