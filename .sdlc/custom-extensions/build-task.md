@@ -26,3 +26,20 @@ Applies to `build-task` (and any fix/commit flow). Takes precedence over the ski
   fixture: `monkeypatch.setattr(<module>.time, "sleep", lambda *a, **k: None)`.
   *Why: `test_geocode_failure_degrades_to_none` made three sequential calls and slept ~2s for real
   until the fixture no-opped sleep — flagged by the test-reviewer on PR #120.*
+
+## Graceful degradation in the pipeline
+
+- **When consuming a field from a semi-trusted or AI-mutated artifact (e.g. `jobs_raw_ai.json`),
+  validate its shape before subscripting and degrade gracefully — one malformed row must never abort
+  the stage.** The `parsers never raise` convention extends to every stage that reads scraped/AI data:
+  check type/length (e.g. `coords` is a 2-length numeric sequence) and fall back, don't crash.
+  *Why: `_location_distance_score` subscripted `coords[0]/coords[1]` after only a truthiness check; a
+  malformed `coords` from the AI-influenceable `jobs_raw_ai.json` would raise in the unwrapped scoring
+  loop and abort the whole rank — flagged by the security-reviewer + gap-critic on PR #128.*
+
+- **Place a new filter/drop before a target-count backfill, not after.** When a pipeline tops up a
+  shortlist to a target count (e.g. the relaxed fallback to `RANK_TARGET_COUNT`), a drop added after it
+  leaves the shortlist short with no backfill — and deterministically short on validation-loop retries.
+  Run the drop before the backfill so it tops up from the already-filtered pool.
+  *Why: the out-of-geo drop was wired after the relaxed-fallback top-up; dropping foreign rows left the
+  shortlist below target — flagged by the gap-critic on PR #128.*

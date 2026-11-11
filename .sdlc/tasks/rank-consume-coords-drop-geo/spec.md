@@ -1,6 +1,6 @@
 ---
 id: spec-rank-consume-coords-drop-geo
-status: in-progress
+status: complete
 created: 2026-11-10
 parent: ../../prds/standardized-job-location/plan.md
 story: "Story 5: Rank consumes structured coords, re-normalizes after AI, drops out-of-geography"
