@@ -86,8 +86,8 @@ table** (`# | Role | Company | Location | Lang | Score`, title links to the job)
 
 | Rule | Code location |
 |---|---|
-| Hard exclude sales/industrial terms | `EXCLUDE_KEYWORDS` rank_jobs.py:92 |
-| Exclude non-IT engineering (mechanical/electrical/…) | `NON_IT_EXCLUDE_KEYWORDS` rank_jobs.py:111 |
+| Hard exclude sales/industrial terms | `excluded_areas` in [position_filter.json](../.github/config/position_filter.json) |
+| Exclude non-IT engineering (mechanical/electrical/…) | `non_it_excluded` in [position_filter.json](../.github/config/position_filter.json) |
 | Reject search/listing URLs & non-job titles | `BAD_URL_PATTERNS` L209 / `NON_JOB_TITLE_PATTERNS` L204 |
 | Require an explicit IT signal | `_has_it_signal` rank_jobs.py:182 |
 | URL must match the source platform domain | `_source_domain_ok` rank_jobs.py:239 |
