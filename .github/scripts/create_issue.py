@@ -115,7 +115,9 @@ def format_body(data: dict) -> str:
     for i, j in enumerate(digest_jobs, 1):
         title = _cell(j.get("title", "N/A"))
         company = _cell(j.get("company", "N/A"))
-        location = _cell(j.get("location", "N/A"))
+        # Prefer the normalized "place, region, country" display; fall back to the
+        # raw location for rows that predate normalization.
+        location = _cell(j.get("display") or j.get("location") or "N/A")
         lang = (j.get("language_hint") or "").lower() or "n/a"
         score = j.get("score", "")
         url = j.get("application_url") or j.get("source_url", "")

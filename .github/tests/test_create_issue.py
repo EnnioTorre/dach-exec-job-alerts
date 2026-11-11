@@ -82,3 +82,41 @@ class TestFormatBody:
         data = {"date": "2026-07-07", "jobs": [], "source_stats": {}}
         body = create_issue.format_body(data)
         assert "Top 15 Ranked Roles" in body
+
+    def test_digest_renders_display_field_when_present(self):
+        data = {
+            "date": "2026-07-07",
+            "jobs": [
+                {
+                    "title": "CTO",
+                    "company": "Acme",
+                    "display": "Graz, Steiermark, Österreich",
+                    "location": "raw-unused-location",
+                    "language_hint": "de",
+                    "score": 4.1,
+                    "application_url": "https://acme.com/jobs/1",
+                }
+            ],
+            "source_stats": {},
+        }
+        body = create_issue.format_body(data)
+        assert "Graz, Steiermark, Österreich" in body
+        assert "raw-unused-location" not in body
+
+    def test_digest_falls_back_to_raw_location_when_no_display(self):
+        data = {
+            "date": "2026-07-07",
+            "jobs": [
+                {
+                    "title": "Head of Engineering",
+                    "company": "Acme",
+                    "location": "Wien, Österreich",
+                    "language_hint": "de",
+                    "score": 4.4,
+                    "application_url": "https://acme.com/jobs/2",
+                }
+            ],
+            "source_stats": {},
+        }
+        body = create_issue.format_body(data)
+        assert "Wien, Österreich" in body
