@@ -1,7 +1,7 @@
 """
 Deduplicates, filters by relevance, and deterministically scores raw jobs.
 
-Reads  /tmp/jobs/jobs_raw.json
+Reads  /tmp/jobs/jobs_raw_ai.json → jobs_pool.json → jobs_raw.json (first present)
 Writes /tmp/jobs/jobs_ranked.json
 """
 
@@ -236,8 +236,25 @@ def fingerprint(job: dict) -> str:
 # Main
 # ---------------------------------------------------------------------------
 
+# Input preference: the AI-enriched pool, else the pool (AI skipped), else the
+# full raw scrape (pool stage absent). The pool (Story 4/5) bounds what the rank
+# operates on; raw is the last-ditch fallback.
+_INPUT_CANDIDATES = (
+    "/tmp/jobs/jobs_raw_ai.json",
+    "/tmp/jobs/jobs_pool.json",
+    "/tmp/jobs/jobs_raw.json",
+)
+
+
+def _input_path(candidates: tuple[str, ...] = _INPUT_CANDIDATES) -> str:
+    for path in candidates:
+        if Path(path).exists():
+            return path
+    return candidates[-1]
+
+
 def main() -> None:
-    in_path = "/tmp/jobs/jobs_raw_ai.json" if Path("/tmp/jobs/jobs_raw_ai.json").exists() else "/tmp/jobs/jobs_raw.json"
+    in_path = _input_path()
     with open(in_path, encoding="utf-8") as f:
         data = json.load(f)
 

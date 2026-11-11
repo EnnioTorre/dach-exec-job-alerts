@@ -11,7 +11,8 @@ to, the configuration surface, and the (absent) infra categories for completenes
 
 | File | Written by | Consumed by |
 |---|---|---|
-| `jobs_raw.json` | scrape_jobs.py / scrape_extra.py | ai_pre_rank_enrich.py, rank_jobs.py |
+| `jobs_raw.json` | scrape_jobs.py / scrape_extra.py | pool_jobs.py (fallback: ai_pre_rank_enrich.py, rank_jobs.py) |
+| `jobs_pool.json` | pool_jobs.py | ai_pre_rank_enrich.py, rank_jobs.py (preferred input) |
 | `jobs_raw_ai.json` | ai_pre_rank_enrich.py | rank_jobs.py (preferred input) |
 | `jobs_ranked.json` | rank_jobs.py | ai_suggest_sources.py, ai_enrich.py, create_issue.py |
 | `extra_sources.json` | ai_suggest_sources.py | scrape_extra.py |
@@ -86,7 +87,7 @@ Set as repository secrets, injected in [dach-exec-job-alerts.yml](../.github/wor
 
 ### Runtime stages (workflow)
 
-CA setup → start SearXNG (Docker) → scrape → AI pre-rank (opt) → rank → validate loop →
+CA setup → start SearXNG (Docker) → scrape → score+pool → AI pre-rank (opt) → rank → validate loop →
 MCP suggest (no-op) → AI suggest (opt) → scrape extra (opt) → re-rank → AI enrich (opt) →
 create issue → upload artifact → stop SearXNG.
 
