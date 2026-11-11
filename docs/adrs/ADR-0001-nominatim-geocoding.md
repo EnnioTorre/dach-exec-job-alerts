@@ -1,6 +1,6 @@
 # ADR-0001: OpenStreetMap Nominatim for job-location geocoding
 
-**Status:** Accepted
+**Status:** Accepted — resilience stance (country-constant fallback) **superseded by [ADR-0002](ADR-0002-no-synthetic-fallback-external-resources.md)**
 **Date:** 2026-11-06
 **PR:** #110
 
@@ -30,9 +30,11 @@ server-side geocoding in the ranking stage, called with the project's existing `
 - **Data classification:** only city/region strings scraped from public job postings are sent — no
   PII, credentials, or financial data. No data-residency concern arises (cf. ADR #359, ADR #21),
   confirmed for this use case.
-- **Resilience (ADR #412/#414):** explicit connect/read timeout `(3.05, 10)`; any non-200, empty, or
-  malformed response and any request exception degrade to `None`, and the ranker falls back to the
-  existing deterministic country constant. A geocoding outage can never fail the run.
+- **Resilience (ADR #412/#414):** explicit connect/read timeout `(3.05, 10)`. ⚠️ **Superseded by
+  [ADR-0002](ADR-0002-no-synthetic-fallback-external-resources.md):** a transport failure/outage is
+  now retried and then **fails the run** rather than falling back to a country constant (the
+  per-country constants are removed); a legitimate miss (`200` + no match) or `RANK_GEOCODE=false`
+  leaves the distance *unknown* (neutral), with no fabricated coordinate.
 - **Usage policy & caching:** a descriptive `User-Agent` (with a contact URL) is sent per the OSMF
   Nominatim usage policy; requests are spaced ≥1 req/s; results (including misses) are cached in
   `/tmp/jobs/geocode_cache.json`, reused across the run's rank/validation/re-rank passes, and

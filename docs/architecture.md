@@ -68,6 +68,7 @@ Communication direction is strictly downstream through files. The only "upstream
 | JSON files in `/tmp/jobs/` as the only inter-stage contract | Stages stay independent and individually runnable/testable; no shared process state |
 | AI stages are `continue-on-error` and optional | Deterministic pipeline must always ship a digest; AI is additive, never load-bearing |
 | Parsers never raise (return `[]` + log) | One failing source must not abort the run; pipeline degrades gracefully |
+| Data-bearing external calls fail loud (geolocation / AI / MCP) — retry then raise, no synthetic fallback ([ADR-0002](adrs/ADR-0002-no-synthetic-fallback-external-resources.md)) | A fabricated stand-in (country constant, neutral score, guessed enrichment) silently poisons the digest; a failed run is recoverable |
 | Source registry externalized to `sources.json` | Add/remove scrape targets without touching Python; validated at load time |
 | Pre-emptive token-bucket rate limiting per domain | Avoids 429s entirely rather than retrying after them; Google throttled hardest (~0.02 req/s) |
 | Provider fallback chain (SearXNG → CSE → SerpAPI → Zenserp → direct) | Avoids direct-Google quota exhaustion; prefers free local SearXNG first |

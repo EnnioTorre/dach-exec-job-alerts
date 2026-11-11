@@ -23,7 +23,10 @@
 2. Keep stage boundaries: a stage reads one JSON file and writes another. Do not merge stages.
 3. If AI-related, call `complete_json()` from [github_models.py](../.github/scripts/github_models.py)
    — do not re-implement the OpenAI client. Wrap the stage as `continue-on-error` in the workflow.
-4. Parsers and AI stages **must degrade gracefully** — return `[]` / skip on error, never raise.
+4. Scrape parsers **must degrade gracefully** — return `[]` / skip on error, never raise. Data-bearing
+   external calls (geolocation / AI / MCP) instead follow
+   [ADR-0002](adrs/ADR-0002-no-synthetic-fallback-external-resources.md) — retry then fail, no
+   synthetic fallback.
 5. Add a fixture-backed test. **Never hit live sites in tests.**
 
 ## Naming conventions
@@ -67,6 +70,22 @@ def parse_stepstone(html, source_name):
 
 There is **no** central exception mapper / middleware — graceful degradation is enforced locally
 at each boundary.
+
+## External-resource failures — fail loud, no synthetic fallback (ADR-0002)
+
+"Parsers never raise" is about **scrape sources**: skipping one dead board and continuing with the
+other *real* sources (or the provider fallback chain) injects nothing fabricated. It does **not**
+license inventing a stand-in value when a **data-bearing external resource** (geolocation, AI/LLM,
+MCP) fails to respond. For those calls
+([ADR-0002](adrs/ADR-0002-no-synthetic-fallback-external-resources.md)):
+
+- **Retry** transient failures (timeout / 5xx / 429), bounded, honouring the rate policy.
+- **Then fail the run** — never substitute a fabricated / guessed / neutral value that flows on as if
+  real (e.g. the removed per-country coordinate constant). A failed run is recoverable; a poisoned
+  digest is not.
+- A successful **"no result"** is a real answer → record it as *unknown* (its own value); do not retry
+  or fail. **Operator-disabled** (e.g. `RANK_GEOCODE=false`) is a configured mode, not a failure.
+  Using an **alternative real source** is not a prohibited fallback.
 
 ## Language-detection convention — never trust the title
 
