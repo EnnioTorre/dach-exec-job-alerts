@@ -73,8 +73,8 @@ flowchart TD
 
 | File Path | Change Description | Target Function/Component |
 |-----------|-------------------|---------------------------|
-| `.github/scripts/rank_jobs.py` | Add `from locations import normalize_location, _is_out_of_geo, load_location_cache, save_location_cache`. Add `_renormalize_rows(jobs)` and `_row_out_of_geo(job)`. Refactor the distance buckets into `_distance_to_score(d)` and add coords-first `_location_distance_score(job)`; `score_job` uses it. Guard `_distance_from_vienna_km` to return `None` for the all-placeholder location (no geocode). Wire `load_location_cache()` → `_renormalize_rows(relevant)` → `save_location_cache()` → out-of-geo drop into `main()` after the relevance/language filters, before dedup. | new `_renormalize_rows`, `_row_out_of_geo`, `_distance_to_score`, `_location_distance_score`; modify `score_job`, `_distance_from_vienna_km`, `main()` |
-| `.github/tests/test_rank_jobs.py` | Add `TestStandardizedLocationRanking` with the 5 plan tests. | `TestStandardizedLocationRanking` |
+| `.github/scripts/rank_jobs.py` | Add `from locations import PLACEHOLDER, _is_out_of_geo, load_location_cache, normalize_location, save_location_cache`. Add `_renormalize_rows(jobs)` and `_row_out_of_geo(job)`. Refactor the distance buckets into `_distance_to_score(d)` and add coords-first `_location_distance_score(job)` (tolerates malformed coords); `score_job` uses it. Guard `_distance_from_vienna_km` to return `None` for the all-placeholder location (no geocode). Wire `load_location_cache()` → `_renormalize_rows(jobs)` → `save_location_cache()` → out-of-geo drop into `main()` **right after loading, before the relevance/relaxed-fallback filters**. | new `_renormalize_rows`, `_row_out_of_geo`, `_distance_to_score`, `_location_distance_score`; modify `score_job`, `_distance_from_vienna_km`, `main()` |
+| `.github/tests/test_rank_jobs.py` | Add `TestStandardizedLocationRanking` with the 5 plan tests + a coords-fallback test. | `TestStandardizedLocationRanking` |
 
 No new file is created.
 
@@ -85,10 +85,10 @@ No new file is created.
 | `_renormalize_rows(jobs)` | `(list[dict]) -> None` | In place, for each row **where `j.get("display") != j.get("location")`** (AI-rewritten, or `scrape_extra` rows with no `display`): `norm = normalize_location(j.get("location", ""))`; set `location = norm["display"]`, `place/region/country/coords/display`. Rows already normalized by scrape (`display == location`) are left untouched — preserving their `coords` and therefore their score (BAC-9). Never raises. |
 | `_row_out_of_geo(job)` | `(dict) -> bool` | `True` only when the country is **known and foreign**: `c = (job.get("country") or "").strip()`; `c and c != PLACEHOLDER and _is_out_of_geo(c, job.get("region"))`. An empty/`—` country (unresolved) is **not** dropped — it is kept with the placeholder (BAC-9), not treated as out-of-geo. |
 | `_distance_to_score(d)` | `(float \| None) -> float` | The existing bucket ladder extracted verbatim (None → 2.4; ≤25→5.0; …; else 1.8). |
-| `_location_distance_score(job)` | `(dict) -> float` | `coords = job.get("coords")`; if `coords`: `_distance_to_score(_haversine_km(*_DACH_LOCATION_POINTS["vienna"], coords[0], coords[1]))`; else `_distance_to_score(_distance_from_vienna_km(job.get("location", "")))`. Two spellings of a place carry identical `coords` ⇒ identical score (BAC-7). |
+| `_location_distance_score(job)` | `(dict) -> float` | `coords = job.get("coords")`; if it is a 2-length list/tuple of numbers: `_distance_to_score(_haversine_km(*_DACH_LOCATION_POINTS["vienna"], float(coords[0]), float(coords[1])))`; **any malformed/short/non-numeric `coords` degrades to** `_distance_to_score(_distance_from_vienna_km(job.get("location", "")))`. Never raises — a bad `coords` from (AI-influenceable) `jobs_raw_ai.json` must not abort the rank. Two spellings carry identical `coords` ⇒ identical score (BAC-7). |
 | `score_job(job)` | `(dict) -> float` | Unchanged formula; the distance term is now `_location_distance_score(job)` instead of `vienna_distance_score(job["location"])`. |
 | `_distance_from_vienna_km(location)` | `(str) -> float \| None` | **Guard added:** if the location has no alphanumeric character (the all-placeholder `—, —, —`), return `None` immediately — never geocode it. Everything else unchanged. |
-| `main()` wiring | — | After the relevance/relaxed/`RANK_LANGUAGE_ONLY` filters and before dedup: `load_location_cache()`; `_renormalize_rows(relevant)`; `save_location_cache()`; `relevant = [j for j in relevant if not _row_out_of_geo(j)]` (with a count print). |
+| `main()` wiring | — | **Right after loading `jobs` (before the relevance/relaxed-fallback/`RANK_LANGUAGE_ONLY` filters), operating on the full `jobs` list:** `load_location_cache()`; `_renormalize_rows(jobs)`; `save_location_cache()`; `jobs = [j for j in jobs if not _row_out_of_geo(j)]` (with a count print). Running the drop **before** the relaxed fallback means the shortlist tops up to `target_rank_count` from a geo-clean pool — not short after a late drop. |
 
 **Business rules carried from the PRD/plan (make explicit, don't infer):**
 - **Nearest-to-Vienna from coords (BAC-5):** the distance term uses the row's precomputed `coords` when
@@ -142,8 +142,9 @@ out-of-geo drop.*
 
 ## Verification Criteria
 
-The five plan tests (Level `CT`, Type `Functional`), pure — `normalize_location`/geocoding mocked via
-`monkeypatch`; the autouse geocode-reset fixture keeps them hermetic. Follows `test_rank_jobs.py`.
+The five plan tests plus a sixth added in review (the coords-absent / malformed-coords fallback), Level
+`CT`, Type `Functional`, pure — `normalize_location`/geocoding mocked via `monkeypatch`; the autouse
+geocode-reset fixture keeps them hermetic. Follows `test_rank_jobs.py`.
 
 ### Component Tests (CT)
 
@@ -151,9 +152,10 @@ The five plan tests (Level `CT`, Type `Functional`), pure — `normalize_locatio
 |-----------|----------------|------------------|----------------|-----|
 | `test_rank_uses_row_coords_for_distance_when_present` | Functional | A job with `coords` at Vienna ⇒ distance sub-score 5.0 (the coords path, not the `location` string) | Ranking re-derives the wrong place | BAC-5 |
 | `test_rank_drops_out_of_geography_rows_from_shortlist` | Functional | A `country:"USA"` row is dropped by `_row_out_of_geo`; a DACH row and a `country:"—"` placeholder row are kept | Irrelevant foreign postings reach the reader | BAC-6 |
-| `test_rank_two_spellings_same_place_same_score` | Functional | Two jobs with identical `coords` (different `location` strings) get the identical distance sub-score | Inconsistent ranking for the same place | BAC-7 |
+| `test_rank_two_spellings_same_place_same_score` | Functional | Two jobs with identical `coords` but `location` strings that would score **differently** via the string path (`"Wien"` → 5.0, `"Unresolvable Place XYZ"` → 2.4) ⇒ identical score ⇒ coords (not the string) drive it | Inconsistent ranking for the same place | BAC-7 |
 | `test_rank_renormalizes_ai_rewritten_location` | Functional | A row with `display != location` (AI-rewritten) ⇒ `_renormalize_rows` (normalize mocked) rewrites its fields; a `display == location` row is left untouched | AI stage reintroduces non-standard shapes | BAC-8 |
 | `test_rank_preserves_existing_resolved_place_scores` | Functional | A scrape-normalized row (`display == location`, has `coords`) keeps its `coords` and `score_job` value after the pass | Ranking regression on working rows | BAC-9 |
+| `test_rank_falls_back_to_location_when_no_coords` | Functional | No `coords`, and a malformed `coords` (`"bad"`, `[1.0]`), both degrade to the location-string path (never crash) | A missing/malformed coords aborts the whole rank | BAC-9 |
 
 ### System / Integration Tests (ST · SIT)
 None — unit-level; the full `scrape → rank → test_scraper_loop` threshold check is the existing validation
@@ -192,6 +194,7 @@ None at this level.
 |---|---|
 | Keep an unknown-location row (`country` empty/`—`), drop only a known foreign one | `test_rank_drops_out_of_geography_rows_from_shortlist` |
 | Not re-geocode / not alter an already-resolved row's score | `test_rank_preserves_existing_resolved_place_scores` |
+| Degrade to the string path (never crash the rank) on a malformed `coords` from `jobs_raw_ai.json` | `test_rank_falls_back_to_location_when_no_coords` |
 
 ## Test Data Requirements
 

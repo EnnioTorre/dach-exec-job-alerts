@@ -658,11 +658,15 @@ def vienna_distance_score(location: str) -> float:
 
 def _location_distance_score(job: dict) -> float:
     """Distance sub-score from the row's precomputed coords when present (so two
-    spellings of a place score identically), else the location-string fallback."""
+    spellings of a place score identically), else the location-string fallback.
+    Tolerates a malformed/short/non-numeric coords by degrading to the string path."""
     coords = job.get("coords")
-    if coords:
-        v = _DACH_LOCATION_POINTS["vienna"]
-        return _distance_to_score(_haversine_km(v[0], v[1], coords[0], coords[1]))
+    if isinstance(coords, (list, tuple)) and len(coords) == 2:
+        try:
+            v = _DACH_LOCATION_POINTS["vienna"]
+            return _distance_to_score(_haversine_km(v[0], v[1], float(coords[0]), float(coords[1])))
+        except (TypeError, ValueError):
+            pass
     return _distance_to_score(_distance_from_vienna_km(job.get("location", "")))
 
 
@@ -682,12 +686,14 @@ def _renormalize_rows(jobs: list[dict]) -> None:
 
 
 def _row_out_of_geo(job: dict) -> bool:
-    """True only when the country is known and foreign; an unknown (empty/placeholder)
-    country is kept — unknown is not out-of-geography."""
-    country = (job.get("country") or "").strip()
+    """True only when the country is known and foreign; an unknown (empty/placeholder/
+    non-string) country is kept — unknown is not out-of-geography."""
+    country = job.get("country")
+    country = country.strip() if isinstance(country, str) else ""
     if not country or country == PLACEHOLDER:
         return False
-    return _is_out_of_geo(country, job.get("region"))
+    region = job.get("region")
+    return _is_out_of_geo(country, region if isinstance(region, str) else None)
 
 
 def language_score(language_hint: str, company: str = "") -> float:
@@ -784,6 +790,17 @@ def main() -> None:
     if ai_pre_rank:
         print(f"AI pre-rank updates: {data.get('ai_pre_rank_updates', 0)}")
 
+    # Re-standardize AI-rewritten / second-pass rows, then drop out-of-geography
+    # BEFORE the relevance/relaxed-fallback so the shortlist tops up from a
+    # geo-clean pool (not short after a late drop).
+    load_location_cache()
+    _renormalize_rows(jobs)
+    save_location_cache()
+    before_geo = len(jobs)
+    jobs = [j for j in jobs if not _row_out_of_geo(j)]
+    if len(jobs) != before_geo:
+        print(f"After out-of-geo drop: {len(jobs)} (−{before_geo - len(jobs)})")
+
     # 1. Relevance filter
     relevant = [j for j in jobs if is_relevant(j)]
 
@@ -813,15 +830,6 @@ def main() -> None:
             j for j in relevant
             if (j.get("language_hint") or "").lower() == rank_language_only
         ]
-
-    # Re-standardize AI-rewritten / second-pass rows, then drop out-of-geography.
-    load_location_cache()
-    _renormalize_rows(relevant)
-    save_location_cache()
-    before_geo = len(relevant)
-    relevant = [j for j in relevant if not _row_out_of_geo(j)]
-    if len(relevant) != before_geo:
-        print(f"After out-of-geo drop: {len(relevant)} (−{before_geo - len(relevant)})")
 
     # 2. Deduplication
     seen: dict[str, bool] = {}

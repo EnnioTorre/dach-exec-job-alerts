@@ -521,9 +521,18 @@ class TestStandardizedLocationRanking:
         assert rank_jobs._row_out_of_geo({}) is False
 
     def test_rank_two_spellings_same_place_same_score(self):
-        a = {"coords": (48.2082, 16.3738), "location": "Wien, Wien, Österreich"}
-        b = {"coords": (48.2082, 16.3738), "location": "Vienna, Vienna, Austria"}
+        # Same coords but location strings that score DIFFERENTLY via the string
+        # path — equal score proves coords (not the string) drive the sub-score.
+        a = {"coords": (48.2082, 16.3738), "location": "Wien"}            # string → Vienna → 5.0
+        b = {"coords": (48.2082, 16.3738), "location": "Unresolvable Place XYZ"}  # string → None → 2.4
+        assert rank_jobs._location_distance_score(b) == 5.0              # coords, not the string
         assert rank_jobs._location_distance_score(a) == rank_jobs._location_distance_score(b)
+
+    def test_rank_falls_back_to_location_when_no_coords(self):
+        # No coords → string path; a malformed coords also degrades to the string path.
+        assert rank_jobs._location_distance_score({"location": "Wien"}) == 5.0
+        assert rank_jobs._location_distance_score({"coords": "bad", "location": "Wien"}) == 5.0
+        assert rank_jobs._location_distance_score({"coords": [1.0], "location": "Wien"}) == 5.0
 
     def test_rank_renormalizes_ai_rewritten_location(self, monkeypatch):
         norm = {
