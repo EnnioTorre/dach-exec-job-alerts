@@ -22,6 +22,7 @@ from locations import (
     save_location_cache,
 )
 from scoring import _load_geocode_cache, _save_geocode_cache, score_job
+from scrape_jobs import _count_by, _source_family
 from text_match import _contains_any
 
 # ---------------------------------------------------------------------------
@@ -75,6 +76,18 @@ def _has_it_signal(job: dict) -> bool:
     company = (job.get("company") or "").lower()
     it_signal = position_filter.POSITION_FILTER["it_signal_terms"]
     return _contains_any(title, it_signal) or _contains_any(company, it_signal)
+
+
+def _has_linkedin_it_context(job: dict) -> bool:
+    """Confirm an ambiguous-title LinkedIn row via its retained posting body
+    (Story 6): True only when it is a LinkedIn row whose body carries an IT signal."""
+    if _source_family(job) != "linkedin":
+        return False
+    body = (job.get("body_text") or "").lower()
+    if not body:
+        return False
+    it_signal = position_filter.POSITION_FILTER["it_signal_terms"]
+    return _contains_any(body, it_signal)
 
 
 def _hard_reject_common(title: str, url: str, ai_rel: str, ai_url_quality: str) -> bool:
@@ -162,7 +175,11 @@ def is_relevant(job: dict) -> bool:
     # (which in DACH is frequently mechanical/electrical/industrial) only
     # qualifies when the title or company carries an explicit software/IT
     # signal. CTO and clear tech leadership titles already contain such a signal.
-    return _has_it_signal(job)
+    if _has_it_signal(job):
+        return True
+    # Ambiguous LinkedIn leadership title: the guest card hides the body, so a
+    # real IT role looks generic. Confirm via the retained posting body (Story 6).
+    return _has_linkedin_it_context(job)
 
 
 def is_relevant_relaxed(job: dict) -> bool:
@@ -232,6 +249,26 @@ def fingerprint(job: dict) -> str:
     return f"{t}|{c}"
 
 
+def _funnel_by(key_fn, pool_counts: dict, reached: list[dict],
+               passed: list[dict], shortlisted: list[dict]) -> dict:
+    """Per-key funnel: pool-contribution (from the pool stage) → reached the
+    ranker → passed the role filter → shortlisted. Counts are monotonic and let
+    the digest avoid reporting an unranked source as 100% yield."""
+    reached_c = _count_by(reached, key_fn)
+    passed_c = _count_by(passed, key_fn)
+    short_c = _count_by(shortlisted, key_fn)
+    keys = set(pool_counts) | set(reached_c) | set(passed_c) | set(short_c)
+    return {
+        k: {
+            "pool": pool_counts.get(k, 0),
+            "reached": reached_c.get(k, 0),
+            "passed": passed_c.get(k, 0),
+            "shortlisted": short_c.get(k, 0),
+        }
+        for k in sorted(keys)
+    }
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -244,6 +281,7 @@ _INPUT_CANDIDATES = (
     "/tmp/jobs/jobs_pool.json",
     "/tmp/jobs/jobs_raw.json",
 )
+_OUTPUT_PATH = "/tmp/jobs/jobs_ranked.json"
 
 
 def _input_path(candidates: tuple[str, ...] = _INPUT_CANDIDATES) -> str:
@@ -382,6 +420,21 @@ def main() -> None:
             computed[src] = computed.get(src, 0) + 1
         deduped_source_stats = computed
 
+    # Per-source / per-family funnel: pool-contribution → reached ranking →
+    # passed the role filter → shortlisted. Additive; the digest (Story 9) reads
+    # it to report honest figures and each family's pool contribution.
+    pool_contrib = data.get("pool_contribution") or {}
+    ranked_funnel = {
+        "by_source": _funnel_by(
+            lambda j: j.get("source_name", "unknown"),
+            pool_contrib.get("by_source", {}), jobs, relevant, capped,
+        ),
+        "by_family": _funnel_by(
+            lambda j: j.get("pool_family", "board"),
+            pool_contrib.get("by_family", {}), jobs, relevant, capped,
+        ),
+    }
+
     output = {
         "date": data.get("date", str(date.today())),
         "source_stats": data.get("stats", {}),
@@ -393,9 +446,10 @@ def main() -> None:
         "ai_pre_rank_enriched": ai_pre_rank,
         "second_pass_count": data.get("second_pass_count", 0),
         "extra_sources_merged": data.get("second_pass_count", 0) > 0,
+        "ranked_funnel": ranked_funnel,
         "jobs": capped,
     }
-    out_path = "/tmp/jobs/jobs_ranked.json"
+    out_path = _OUTPUT_PATH
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(output, f, indent=2, ensure_ascii=False)
     _save_geocode_cache()

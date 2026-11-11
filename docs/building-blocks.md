@@ -64,12 +64,14 @@ Grouped by pipeline capability. Line numbers are approximate anchors into the so
 | Symbol | File | Responsibility | Key signature |
 |---|---|---|---|
 | `main` | rank_jobs.py | Orchestrate filter→dedup→score→diversify→cap→write | `() -> None` |
-| `is_relevant` | rank_jobs.py | Strict relevance gate (role + IT signal + domain) | `(job) -> bool` |
+| `is_relevant` | rank_jobs.py | Strict relevance gate (role + IT signal + domain); confirms ambiguous LinkedIn rows via the retained body | `(job) -> bool` |
 | `is_relevant_relaxed` | rank_jobs.py | Looser gate to backfill to target count | `(job) -> bool` |
 | `_hard_reject_common` | rank_jobs.py | Shared hard-reject (bad URL/title/AI reject) | `(job) -> bool` |
 | `_has_it_signal` | rank_jobs.py | Require IT keyword in title/company | `(job) -> bool` |
+| `_has_linkedin_it_context` | rank_jobs.py | Confirm an ambiguous LinkedIn row when its retained `body_text` (Story 6) carries an IT signal | `(job) -> bool` |
 | `_source_domain_ok` | rank_jobs.py | URL must match source platform domain | `(job) -> bool` |
-| `fingerprint` | rank_jobs.py | Dedup key `title|company` (normalized) | `(job) -> str` |
+| `fingerprint` | rank_jobs.py | Dedup key `title\|company` (normalized) | `(job) -> str` |
+| `_funnel_by` / `ranked_funnel` | rank_jobs.py | Per-source & per-family funnel counts (pool → reached → passed → shortlisted) written to `jobs_ranked.json` for the honest digest | `(key_fn, pool, reached, passed, shortlisted) -> dict` |
 | `excluded_areas` / `non_it_excluded` | [position_filter.json](../.github/config/position_filter.json) | Hard exclude lists (sales, industrial, mechanical…), loaded via `position_filter.POSITION_FILTER` | config lists |
 | `BAD_URL_PATTERNS` / `NON_JOB_TITLE_PATTERNS` | rank_jobs.py | Reject listing/search pages & non-job titles | const |
 
