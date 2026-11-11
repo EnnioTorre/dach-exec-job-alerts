@@ -252,7 +252,9 @@ def fingerprint(job: dict) -> str:
 def _funnel_by(key_fn, pool_counts: dict, reached: list[dict],
                passed: list[dict], shortlisted: list[dict]) -> dict:
     """Per-key funnel: pool-contribution (from the pool stage) → reached the
-    ranker → passed the role filter → shortlisted. Counts are monotonic and let
+    ranker → passed the role filter → shortlisted. `passed` and `shortlisted` are
+    both measured post-dedup so per-source yield is honest (a duplicate kept
+    under another source is not double-counted). Counts are monotonic and let
     the digest avoid reporting an unranked source as 100% yield."""
     reached_c = _count_by(reached, key_fn)
     passed_c = _count_by(passed, key_fn)
@@ -421,17 +423,26 @@ def main() -> None:
         deduped_source_stats = computed
 
     # Per-source / per-family funnel: pool-contribution → reached ranking →
-    # passed the role filter → shortlisted. Additive; the digest (Story 9) reads
-    # it to report honest figures and each family's pool contribution.
-    pool_contrib = data.get("pool_contribution") or {}
+    # passed the role filter → shortlisted. `passed`/`shortlisted` are counted on
+    # the deduped set so per-source yield is honest (no duplicate double-count).
+    # Additive; the digest (Story 9) reads it for honest figures and each
+    # family's pool contribution. Defensive against a malformed pool envelope.
+    pool_contrib = data.get("pool_contribution")
+    if not isinstance(pool_contrib, dict):
+        pool_contrib = {}
+
+    def _pool_counts(key: str) -> dict:
+        counts = pool_contrib.get(key, {})
+        return counts if isinstance(counts, dict) else {}
+
     ranked_funnel = {
         "by_source": _funnel_by(
             lambda j: j.get("source_name", "unknown"),
-            pool_contrib.get("by_source", {}), jobs, relevant, capped,
+            _pool_counts("by_source"), jobs, deduped, capped,
         ),
         "by_family": _funnel_by(
             lambda j: j.get("pool_family", "board"),
-            pool_contrib.get("by_family", {}), jobs, relevant, capped,
+            _pool_counts("by_family"), jobs, deduped, capped,
         ),
     }
 
