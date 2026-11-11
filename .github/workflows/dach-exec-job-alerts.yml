@@ -116,6 +116,21 @@ jobs:
           SCRAPER_GOOGLE_CSE_CX: ${{ secrets.SCRAPER_GOOGLE_CSE_CX }}
 
       # ------------------------------------------------------------------
+      # Stage 1a: score + pool — score every scraped row with the shared
+      #   scorer and build the merit-based candidate pool (per-family minimum
+      #   + global merit) that replaces the removed order-based [:200] cap.
+      #   NOT continue-on-error: a geocoding outage fails the run rather than
+      #   shipping a poisoned pool (ADR-0002 / ADR-0003).
+      # ------------------------------------------------------------------
+      - name: Score + pool
+        run: python .github/scripts/pool_jobs.py
+        env:
+          POOL_GEOCODE_MAX: "60"
+          POOL_TARGET_SIZE: "200"
+          POOL_FAMILY_MIN: "20"
+          RANK_GEOCODE_USER_AGENT: "dach-exec-job-alerts/1.0 (+https://github.com/${{ github.repository }})"
+
+      # ------------------------------------------------------------------
       # Stage 1b: optional AI pre-ranking enrichment (language/location/
       #   salary/relevance/url quality) to improve filtering and ranking.
       #   continue-on-error: true — deterministic ranking remains fallback.
