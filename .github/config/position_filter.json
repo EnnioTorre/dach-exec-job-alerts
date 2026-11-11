@@ -2,15 +2,6 @@
   "in_focus_roles": [
     "cto",
     "chief technology officer",
-    "engineer",
-    "software engineer",
-    "devops engineer",
-    "platform engineer",
-    "cloud engineer",
-    "site reliability engineer",
-    "sre engineer",
-    "backend engineer",
-    "infrastructure engineer",
     "head of engineering",
     "head of software",
     "head of software engineering",
@@ -34,13 +25,8 @@
     "vice president engineering",
     "engineering lead",
     "technical director",
-    "softwareentwickler",
-    "entwicklungsingenieur",
-    "devops engineer",
-    "plattform engineer",
-    "cloud engineer",
-    "site reliability engineer",
-    "sre engineer"
+    "enterprise architect",
+    "chief enterprise architect"
   ],
   "domain_terms": [
     "engineering",
