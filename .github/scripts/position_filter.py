@@ -59,9 +59,8 @@ def load_position_filter(path: str = POSITION_FILTER_CONFIG_PATH) -> dict:
         value = cfg[field]
         if not isinstance(value, list) or not all(isinstance(t, str) for t in value):
             raise ValueError(f"{path}: {field!r} must be a list of strings")
-
-    if not cfg["in_focus_roles"]:
-        raise ValueError(f"{path}: 'in_focus_roles' must be a non-empty list")
+        if not value:
+            raise ValueError(f"{path}: {field!r} must be a non-empty list")
 
     sks = cfg.get("search_keyword_sets")
     if not isinstance(sks, dict) or not all(

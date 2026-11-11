@@ -70,3 +70,14 @@ def test_term_in_both_in_focus_and_excluded_raises(tmp_path):
     p.write_text(json.dumps(bad), encoding="utf-8")
     with pytest.raises(ValueError, match="both in-focus and excluded"):
         P.load_position_filter(str(p))
+
+
+def test_invalid_config_empty_role_list_raises(tmp_path):
+    # An empty non-in_focus list (here excluded_areas) is also rejected: an
+    # empty exclude list would un-filter the digest and neuter the overlap guard.
+    bad = _valid_config()
+    bad["excluded_areas"] = []
+    p = tmp_path / "position_filter.json"
+    p.write_text(json.dumps(bad), encoding="utf-8")
+    with pytest.raises(ValueError, match="must be a non-empty list"):
+        P.load_position_filter(str(p))
