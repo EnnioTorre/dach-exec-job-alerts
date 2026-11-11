@@ -16,6 +16,13 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import requests
+from locations import (
+    PLACEHOLDER,
+    _is_out_of_geo,
+    load_location_cache,
+    normalize_location,
+    save_location_cache,
+)
 
 # ---------------------------------------------------------------------------
 # Language priority (0–5 scale, used by `language_score`)
@@ -598,6 +605,9 @@ def _distance_from_vienna_km(location: str) -> float | None:
     loc = (location or "").lower()
     if not loc:
         return None
+    # The all-placeholder location ("—, —, —") has nothing to geocode.
+    if not any(c.isalnum() for c in loc):
+        return None
 
     vienna = _DACH_LOCATION_POINTS["vienna"]
     for token, (lat, lon) in _DACH_LOCATION_POINTS.items():
@@ -624,8 +634,7 @@ def _distance_from_vienna_km(location: str) -> float | None:
     return None
 
 
-def vienna_distance_score(location: str) -> float:
-    d = _distance_from_vienna_km(location)
+def _distance_to_score(d: float | None) -> float:
     if d is None:
         return 2.4
     if d <= 25:
@@ -641,6 +650,50 @@ def vienna_distance_score(location: str) -> float:
     if d <= 900:
         return 2.2
     return 1.8
+
+
+def vienna_distance_score(location: str) -> float:
+    return _distance_to_score(_distance_from_vienna_km(location))
+
+
+def _location_distance_score(job: dict) -> float:
+    """Distance sub-score from the row's precomputed coords when present (so two
+    spellings of a place score identically), else the location-string fallback.
+    Tolerates a malformed/short/non-numeric coords by degrading to the string path."""
+    coords = job.get("coords")
+    if isinstance(coords, (list, tuple)) and len(coords) == 2:
+        try:
+            v = _DACH_LOCATION_POINTS["vienna"]
+            return _distance_to_score(_haversine_km(v[0], v[1], float(coords[0]), float(coords[1])))
+        except (TypeError, ValueError):
+            pass
+    return _distance_to_score(_distance_from_vienna_km(job.get("location", "")))
+
+
+def _renormalize_rows(jobs: list[dict]) -> None:
+    """Re-standardize rows the AI stage rewrote or scrape_extra appended (detected
+    by display != location); scrape-normalized rows (display == location) are left
+    untouched so their coords and score are preserved. Never raises."""
+    for j in jobs:
+        if j.get("display") != j.get("location"):
+            norm = normalize_location(j.get("location", ""))
+            j["location"] = norm["display"]
+            j["place"] = norm["place"]
+            j["region"] = norm["region"]
+            j["country"] = norm["country"]
+            j["coords"] = norm["coords"]
+            j["display"] = norm["display"]
+
+
+def _row_out_of_geo(job: dict) -> bool:
+    """True only when the country is known and foreign; an unknown (empty/placeholder/
+    non-string) country is kept — unknown is not out-of-geography."""
+    country = job.get("country")
+    country = country.strip() if isinstance(country, str) else ""
+    if not country or country == PLACEHOLDER:
+        return False
+    region = job.get("region")
+    return _is_out_of_geo(country, region if isinstance(region, str) else None)
 
 
 def language_score(language_hint: str, company: str = "") -> float:
@@ -699,7 +752,7 @@ def it_management_focus_score(title: str) -> float:
 
 
 def score_job(job: dict) -> float:
-    ls = vienna_distance_score(job.get("location", ""))
+    ls = _location_distance_score(job)
     lang = language_score(job.get("language_hint", ""))
     focus = it_management_focus_score(job.get("title", ""))
     # Weighted formula: distance from Vienna 35%, language 35%,
@@ -736,6 +789,17 @@ def main() -> None:
     print(f"Input: {len(jobs)} raw jobs (from {in_path})")
     if ai_pre_rank:
         print(f"AI pre-rank updates: {data.get('ai_pre_rank_updates', 0)}")
+
+    # Re-standardize AI-rewritten / second-pass rows, then drop out-of-geography
+    # BEFORE the relevance/relaxed-fallback so the shortlist tops up from a
+    # geo-clean pool (not short after a late drop).
+    load_location_cache()
+    _renormalize_rows(jobs)
+    save_location_cache()
+    before_geo = len(jobs)
+    jobs = [j for j in jobs if not _row_out_of_geo(j)]
+    if len(jobs) != before_geo:
+        print(f"After out-of-geo drop: {len(jobs)} (−{before_geo - len(jobs)})")
 
     # 1. Relevance filter
     relevant = [j for j in jobs if is_relevant(j)]
