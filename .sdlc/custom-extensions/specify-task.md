@@ -23,3 +23,14 @@ Applies to `specify-task`. Takes precedence over the skill's defaults. Also see
   `location` when `GITHUB_TOKEN` is set) and `scrape_extra.py` (merges un-normalized rows into
   `jobs_raw.json` after the pass); the gap-critic caught that the digest benefit is only guaranteed on
   the AI-off path and that a later story must re-normalize — PR #125.*
+
+## Externalised list content vs the PRD focus
+
+- **When a spec moves a filter/role list into config and the PRD narrows that list's scope, reconcile
+  the list CONTENT against the PRD's stated focus — do not mandate a blind "verbatim copy" of the old,
+  broader list.** A verbatim copy carries entries the PRD now excludes, and the narrowing is easily
+  left owned by no story. Spell out which entries stay, which go, and which story owns the narrowing.
+  *Why: the position-filter-config spec told build-task to copy `ROLE_KEYWORDS` verbatim into
+  `in_focus_roles`; the copy carried IC/engineer titles the PRD lists as "not in focus" (leadership
+  only), the human reviewer rejected it, and the gap-critic found no story owned the narrowing —
+  PR #132 (plan R2).*

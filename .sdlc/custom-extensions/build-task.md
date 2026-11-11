@@ -43,3 +43,13 @@ Applies to `build-task` (and any fix/commit flow). Takes precedence over the ski
   Run the drop before the backfill so it tops up from the already-filtered pool.
   *Why: the out-of-geo drop was wired after the relaxed-fallback top-up; dropping foreign rows left the
   shortlist below target — flagged by the gap-critic on PR #128.*
+
+## Enforce the full declared invariant, not just the BAC-named case
+
+- **When a config/validator's declared intent is "fail loud on invalid", enforce the FULL stated
+  invariant on every field it applies to — not only the one the BAC happens to name.** If a comment or
+  spec says "each list must be non-empty", the code must check every list, not just the first; a
+  partial check leaves the other fields able to break the pipeline silently.
+  *Why: `position_filter.load_position_filter` enforced non-empty on only `in_focus_roles` though the
+  comment/spec said "each role-rule list"; an empty `it_signal_terms` would empty the digest and an
+  empty `excluded_areas` would un-filter it — flagged by the code-reviewer + gap-critic on PR #132.*
