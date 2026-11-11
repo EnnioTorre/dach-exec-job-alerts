@@ -22,13 +22,16 @@ import scoring
 
 @pytest.fixture(autouse=True)
 def _geocoding_off_by_default(monkeypatch):
-    # The ranking tests assert the offline table/fallback behaviour; keep them
-    # hermetic. (The scorer's geocoding closure now lives in `scoring`.)
+    # The scorer (in `scoring`) geolocates both the Vienna origin and the row's
+    # location; keep the ranking tests hermetic by disabling live geocoding and
+    # seeding the origin from cache, mirroring the persistent cache in production.
     monkeypatch.setenv("RANK_GEOCODE", "false")
     monkeypatch.setenv("RANK_GEOCODE_CACHE_PATH", "")  # never touch disk in tests
     monkeypatch.setattr(scoring, "_geocode_used", 0)
     monkeypatch.setattr(scoring, "_last_geocode_ts", 0.0)
+    monkeypatch.setattr(scoring, "_vienna_origin", None)
     scoring._GEOCODE_CACHE.clear()
+    scoring._GEOCODE_CACHE[scoring._VIENNA_PLACE.strip().lower()] = (48.2082, 16.3738)
 
 
 # ---------------------------------------------------------------------------
@@ -299,15 +302,17 @@ class TestStandardizedLocationRanking:
         assert rank_jobs._row_out_of_geo({}) is False
 
     def test_rank_two_spellings_same_place_same_score(self):
-        # Same coords but location strings that score DIFFERENTLY via the string
-        # path — equal score proves coords (not the string) drive the sub-score.
-        a = {"coords": (48.2082, 16.3738), "location": "Wien"}            # string → Vienna → 5.0
-        b = {"coords": (48.2082, 16.3738), "location": "Unresolvable Place XYZ"}  # string → None → 2.4
+        # Same coords; neither location string geolocates offline. Equal score
+        # proves the row's coords (not the string) drive the sub-score.
+        a = {"coords": (48.2082, 16.3738), "location": "Wien"}
+        b = {"coords": (48.2082, 16.3738), "location": "Unresolvable Place XYZ"}
         assert scoring._location_distance_score(b) == 5.0              # coords, not the string
         assert scoring._location_distance_score(a) == scoring._location_distance_score(b)
 
     def test_rank_falls_back_to_location_when_no_coords(self):
-        # No coords → string path; a malformed coords also degrades to the string path.
+        # No coords → geolocate the location string; a malformed coords also
+        # degrades to the string path. Seed the geolocation so it is offline.
+        scoring._GEOCODE_CACHE["wien"] = (48.2082, 16.3738)
         assert scoring._location_distance_score({"location": "Wien"}) == 5.0
         assert scoring._location_distance_score({"coords": "bad", "location": "Wien"}) == 5.0
         assert scoring._location_distance_score({"coords": [1.0], "location": "Wien"}) == 5.0

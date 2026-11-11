@@ -3,9 +3,10 @@ Deterministic ranking scorer, shared by the final rank (``rank_jobs``) and the
 score-and-pool stage (``pool_jobs``) so every row is scored by one formula.
 
 ``score_job`` = 0.35·location-distance + 0.35·language + 0.30·IT-management
-focus, clamped to [1, 5]. Location distance uses the row's precomputed coords
-when present, else a Nominatim geocode of the location string (bounded, cached,
-rate-limited, fully degrading).
+focus, clamped to [1, 5]. Location distance is the great-circle distance from a
+geolocated Vienna origin to the row's geolocated coordinates — the row's
+precomputed coords when present, else a Nominatim geocode of the location string
+(bounded, cached, rate-limited, degrading to a neutral score when unresolvable).
 """
 
 import json
@@ -31,73 +32,24 @@ LANGUAGE_SCORE_LOW = 1.2
 # Scoring helpers
 # ---------------------------------------------------------------------------
 
-_VIENNA = ["vienna", "wien", "1010", "1020", "1030", "1040", "1050",
-           "1060", "1070", "1080", "1090", "1100", "1110", "1120",
-           "1130", "1140", "1150", "1160", "1170", "1180", "1190",
-           "1200", "1210", "1220", "1230"]
-
-_DACH_LOCATION_POINTS: dict[str, tuple[float, float]] = {
-    "vienna": (48.2082, 16.3738),
-    "wien": (48.2082, 16.3738),
-    "graz": (47.0707, 15.4395),
-    "linz": (48.3069, 14.2858),
-    "salzburg": (47.8095, 13.0550),
-    "innsbruck": (47.2692, 11.4041),
-    "klagenfurt": (46.6247, 14.3053),
-    "villach": (46.6103, 13.8558),
-    "berlin": (52.5200, 13.4050),
-    "munich": (48.1351, 11.5820),
-    "münchen": (48.1351, 11.5820),
-    "frankfurt": (50.1109, 8.6821),
-    "hamburg": (53.5511, 9.9937),
-    "cologne": (50.9375, 6.9603),
-    "köln": (50.9375, 6.9603),
-    "düsseldorf": (51.2277, 6.7735),
-    "stuttgart": (48.7758, 9.1829),
-    "leipzig": (51.3397, 12.3731),
-    "zurich": (47.3769, 8.5417),
-    "zürich": (47.3769, 8.5417),
-    "basel": (47.5596, 7.5886),
-    "bern": (46.9480, 7.4474),
-    "geneva": (46.2044, 6.1432),
-    "genf": (46.2044, 6.1432),
-    "lausanne": (46.5197, 6.6323),
-    # South Tyrol (German-speaking northern Italy) — ~400 km from Vienna.
-    "bolzano": (46.4983, 11.3548),
-    "bozen": (46.4983, 11.3548),
-}
-
-_COUNTRY_DISTANCE_FALLBACK = {
-    "at": 280.0,
-    "de": 560.0,
-    "ch": 700.0,
-    "it": 400.0,
-    "dach": 500.0,
-}
-
-_AUSTRIA_HINTS = ["austria", "österreich", ".at"]
-_GERMANY_HINTS = ["germany", "deutschland", ".de"]
-_SWITZERLAND_HINTS = ["switzerland", "schweiz", ".ch"]
-_ITALY_HINTS = ["italy", "italia", "south tyrol", "südtirol", "alto adige", ".it"]
-
-# Bare location strings — only a country/region-less marker. These keep the
-# country/dach fallback and are never geocoded (saves calls and preserves the
-# existing fallback semantics).
-_BARE_LOCATIONS = {
-    "", "austria", "österreich", "osterreich", "germany", "deutschland",
-    "switzerland", "schweiz", "italy", "italia", "dach", "remote",
-    "remote (dach)", "at", "de", "ch", "it", ".at", ".de", ".ch", ".it",
-}
+# The distance axis is anchored on Vienna, resolved by geolocation (cached)
+# rather than a hardcoded coordinate. Resolved once per process; later runs read
+# it straight from the persistent geocode cache.
+_VIENNA_PLACE = "Wien, Österreich"
+_vienna_origin: tuple[float, float] | None = None
 
 
-def _is_bare_country_location(location: str) -> bool:
-    """True when the location carries no specific place (country/marker only)."""
-    return (location or "").strip().lower() in _BARE_LOCATIONS
+def _origin() -> tuple[float, float] | None:
+    """Geolocated Vienna reference point (lat, lon), or None when unresolvable."""
+    global _vienna_origin
+    if _vienna_origin is None:
+        _vienna_origin = _geocode(_VIENNA_PLACE)
+    return _vienna_origin
 
 
-# Geocoding resolves a specific city/region string to coordinates via
+# Geocoding resolves a location string to coordinates via
 # OpenStreetMap Nominatim so distance-from-Vienna reflects true proximity. On by
-# default; set RANK_GEOCODE=false to disable (exact pre-geocoding behaviour).
+# default; set RANK_GEOCODE=false to disable (distances then degrade to neutral).
 # Bounded per run, cached per location, spaced to honour the OSM usage policy
 # (<=1 req/s), and fully degrading — any failure returns None.
 _NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
@@ -214,36 +166,17 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 
 def _distance_from_vienna_km(location: str) -> float | None:
-    loc = (location or "").lower()
-    if not loc:
+    """Great-circle km from the geolocated Vienna origin to the geolocated
+    location string. None when either endpoint cannot be resolved."""
+    loc = (location or "").strip()
+    # A blank or all-placeholder location ("—, —, —") has nothing to geolocate.
+    if not loc or not any(c.isalnum() for c in loc):
         return None
-    # The all-placeholder location ("—, —, —") has nothing to geocode.
-    if not any(c.isalnum() for c in loc):
+    origin = _origin()
+    coords = _geocode(location)
+    if origin is None or coords is None:
         return None
-
-    vienna = _DACH_LOCATION_POINTS["vienna"]
-    for token, (lat, lon) in _DACH_LOCATION_POINTS.items():
-        if token in loc:
-            return _haversine_km(vienna[0], vienna[1], lat, lon)
-
-    # Geocode a specific (non-bare) string to real coordinates before falling
-    # back to the coarse country constant.
-    if not _is_bare_country_location(loc):
-        coords = _geocode(location)
-        if coords:
-            return _haversine_km(vienna[0], vienna[1], coords[0], coords[1])
-
-    if "remote" in loc or "dach" in loc:
-        return _COUNTRY_DISTANCE_FALLBACK["dach"]
-    if any(k in loc for k in _AUSTRIA_HINTS):
-        return _COUNTRY_DISTANCE_FALLBACK["at"]
-    if any(k in loc for k in _GERMANY_HINTS):
-        return _COUNTRY_DISTANCE_FALLBACK["de"]
-    if any(k in loc for k in _SWITZERLAND_HINTS):
-        return _COUNTRY_DISTANCE_FALLBACK["ch"]
-    if any(k in loc for k in _ITALY_HINTS):
-        return _COUNTRY_DISTANCE_FALLBACK["it"]
-    return None
+    return _haversine_km(origin[0], origin[1], coords[0], coords[1])
 
 
 def _distance_to_score(d: float | None) -> float:
@@ -269,14 +202,16 @@ def vienna_distance_score(location: str) -> float:
 
 
 def _location_distance_score(job: dict) -> float:
-    """Distance sub-score from the row's precomputed coords when present (so two
-    spellings of a place score identically), else the location-string fallback.
-    Tolerates a malformed/short/non-numeric coords by degrading to the string path."""
+    """Distance sub-score from the row's geolocated coords when present (so two
+    spellings of a place score identically), else by geolocating the location
+    string. Degrades to neutral when coordinates cannot be resolved."""
+    origin = _origin()
     coords = job.get("coords")
-    if isinstance(coords, (list, tuple)) and len(coords) == 2:
+    if origin is not None and isinstance(coords, (list, tuple)) and len(coords) == 2:
         try:
-            v = _DACH_LOCATION_POINTS["vienna"]
-            return _distance_to_score(_haversine_km(v[0], v[1], float(coords[0]), float(coords[1])))
+            return _distance_to_score(
+                _haversine_km(origin[0], origin[1], float(coords[0]), float(coords[1]))
+            )
         except (TypeError, ValueError):
             pass
     return _distance_to_score(_distance_from_vienna_km(job.get("location", "")))

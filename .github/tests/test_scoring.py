@@ -2,30 +2,38 @@
 Unit tests for the shared deterministic scorer in `scoring.py`.
 
 Focus areas:
-  - Vienna-distance scoring buckets (table, geocode, fallback)
+  - Vienna-distance scoring by geolocation (origin + location geocoded)
   - language / IT-management focus scoring
-  - the re-weighted `score_job` formula (distance 35% / language 35% /
-    IT relevance 30% — salary was removed)
+  - the weighted `score_job` formula (distance 35% / language 35% /
+    IT relevance 30%)
   - geocoding closure (budget, cache, HTTP path, persistent cache)
-  - behaviour-preservation + source-blindness guards for the extraction
+  - formula determinism + source-blindness guards
 
-The scorer is pure and side-effect free apart from the geocoding closure, which
-is kept hermetic by the autouse fixture below.
+Distance scoring is driven entirely by geolocation (no static coordinate
+table). The autouse fixture keeps the suite hermetic by disabling live geocoding
+and seeding the Vienna origin from the cache, mirroring the persistent cache in
+production.
 """
 
 import pytest
 import scoring
 
+# Vienna reference coordinates, used only to seed the geocode cache so the
+# geolocated origin resolves offline in tests (the scorer holds no such constant).
+_VIENNA_COORDS = (48.2082, 16.3738)
+
 
 @pytest.fixture(autouse=True)
 def _geocoding_off_by_default(monkeypatch):
-    # The scoring tests assert the offline table/fallback behaviour; keep them
-    # hermetic. Geocoding tests re-enable it and stub the network explicitly.
+    # Distance scoring geolocates both the origin and the location; keep tests
+    # hermetic by disabling live geocoding and seeding the origin from cache.
     monkeypatch.setenv("RANK_GEOCODE", "false")
     monkeypatch.setenv("RANK_GEOCODE_CACHE_PATH", "")  # never touch disk in tests
     monkeypatch.setattr(scoring, "_geocode_used", 0)
     monkeypatch.setattr(scoring, "_last_geocode_ts", 0.0)
+    monkeypatch.setattr(scoring, "_vienna_origin", None)
     scoring._GEOCODE_CACHE.clear()
+    scoring._GEOCODE_CACHE[scoring._VIENNA_PLACE.strip().lower()] = _VIENNA_COORDS
 
 
 class _FakeResp:
@@ -43,37 +51,34 @@ class _FakeResp:
 
 class TestViennaDistanceScore:
     @pytest.mark.parametrize(
-        "location,expected",
+        "location,coords,expected",
         [
-            ("Wien, Österreich", 5.0),   # 0 km
-            ("Vienna", 5.0),
-            ("Graz", 4.2),               # ~145 km
-            ("Munich", 3.5),             # ~356 km
-            ("Zurich", 2.8),             # ~588 km
-            ("Bolzano", 3.5),            # ~426 km (South Tyrol)
-            ("Bozen, Südtirol", 3.5),
+            ("Vienna", (48.2082, 16.3738), 5.0),    # 0 km
+            ("Graz", (47.0707, 15.4395), 4.2),       # ~145 km
+            ("Munich", (48.1351, 11.5820), 3.5),     # ~356 km
+            ("Zurich", (47.3769, 8.5417), 2.8),      # ~588 km
+            ("Bolzano", (46.4983, 11.3548), 3.5),    # ~426 km (South Tyrol)
         ],
     )
-    def test_known_cities_map_to_expected_buckets(self, location, expected):
+    def test_geolocated_city_maps_to_expected_bucket(self, location, coords, expected):
+        scoring._GEOCODE_CACHE[location.strip().lower()] = coords
         assert scoring.vienna_distance_score(location) == expected
 
     def test_empty_location_returns_neutral_default(self):
         assert scoring.vienna_distance_score("") == 2.4
 
-    def test_unknown_location_returns_neutral_default(self):
+    def test_placeholder_location_returns_neutral_default(self):
+        assert scoring.vienna_distance_score("—, —, —") == 2.4
+
+    def test_unresolvable_location_returns_neutral_default(self):
+        # No cached geolocation + geocoding disabled → neutral.
         assert scoring.vienna_distance_score("Atlantis") == 2.4
 
-    def test_remote_uses_dach_fallback_distance(self):
-        # "remote" → dach fallback (500 km) → 2.8 bucket
-        assert scoring.vienna_distance_score("Remote (DACH)") == 2.8
-
-    def test_country_hint_only_austria(self):
-        # ".at" / "österreich" without a city → 280 km fallback → 3.5 bucket
-        assert scoring.vienna_distance_score("Österreich") == 3.5
-
-    def test_italy_hint_only_uses_fallback_distance(self):
-        # "italy" / "south tyrol" without a city → 400 km fallback → 3.5 bucket
-        assert scoring.vienna_distance_score("South Tyrol, Italy") == 3.5
+    def test_no_static_table_city_without_geolocation_is_neutral(self):
+        # "Graz" was a hardcoded table entry before the rework; with no
+        # geolocation available it now degrades to neutral — proving the static
+        # coordinate table is gone.
+        assert scoring.vienna_distance_score("Graz") == 2.4
 
 
 # ---------------------------------------------------------------------------
@@ -149,8 +154,8 @@ class TestItManagementFocusScore:
 
 class TestScoreJob:
     def test_perfect_job_scores_five(self):
-        # Vienna (5.0)*.35 + en (5.0)*.35 + Head of Software Engineering (5.0)*.30 = 5.0
-        job = {"title": "Head of Software Engineering", "location": "Wien", "language_hint": "en", "company": "Acme"}
+        # Vienna coords (5.0)*.35 + en (5.0)*.35 + Head of Software Engineering (5.0)*.30 = 5.0
+        job = {"title": "Head of Software Engineering", "coords": _VIENNA_COORDS, "language_hint": "en", "company": "Acme"}
         assert scoring.score_job(job) == 5.0
 
     def test_score_is_clamped_to_minimum_one(self):
@@ -158,18 +163,18 @@ class TestScoreJob:
         assert scoring.score_job(job) >= 1.0
 
     def test_score_never_exceeds_five(self):
-        job = {"title": "Head of Software Engineering", "location": "Vienna", "language_hint": "en", "company": "Acme International"}
+        job = {"title": "Head of Software Engineering", "coords": _VIENNA_COORDS, "language_hint": "en", "company": "Acme International"}
         assert scoring.score_job(job) <= 5.0
 
     def test_salary_text_is_ignored(self):
         # Salary was removed from scoring; presence/absence must not change score.
-        base = {"title": "Head of Engineering", "location": "Wien", "language_hint": "en", "company": "Acme"}
+        base = {"title": "Head of Engineering", "coords": _VIENNA_COORDS, "language_hint": "en", "company": "Acme"}
         with_salary = {**base, "salary_text": "EUR 200.000"}
         assert scoring.score_job(base) == scoring.score_job(with_salary)
 
     def test_english_role_outranks_identical_german_role(self):
-        en = {"title": "Head of Engineering", "location": "Wien", "language_hint": "en", "company": "Acme"}
-        de = {"title": "Head of Engineering", "location": "Wien", "language_hint": "de", "company": "Acme"}
+        en = {"title": "Head of Engineering", "coords": _VIENNA_COORDS, "language_hint": "en", "company": "Acme"}
+        de = {"title": "Head of Engineering", "coords": _VIENNA_COORDS, "language_hint": "de", "company": "Acme"}
         assert scoring.score_job(en) > scoring.score_job(de)
 
 
@@ -178,36 +183,32 @@ class TestScoreJob:
 # ---------------------------------------------------------------------------
 
 class TestGeocoding:
-    def test_known_city_still_scores_from_table_without_geocoding(self, monkeypatch):
-        def _boom(loc):
-            raise AssertionError("geocode must not be called for a table city")
-
-        monkeypatch.setattr(scoring, "_geocode", _boom)
-        assert scoring.vienna_distance_score("Graz") == 4.2
-
     def test_arbitrary_city_geocoded_to_distance_bucket(self, monkeypatch):
-        # Bregenz is not in the table; stub Vienna's own coords → 0 km → 5.0.
-        monkeypatch.setattr(scoring, "_geocode", lambda loc: (48.2082, 16.3738))
+        # Any city is resolved by geolocation; stub Vienna's own coords → 0 km → 5.0.
+        monkeypatch.setattr(scoring, "_vienna_origin", _VIENNA_COORDS)
+        monkeypatch.setattr(scoring, "_geocode", lambda loc: _VIENNA_COORDS)
         assert scoring.vienna_distance_score("Bregenz") == 5.0
 
-    def test_two_cities_same_country_score_by_distance(self, monkeypatch):
+    def test_two_cities_score_by_geolocated_distance(self, monkeypatch):
         coords = {"nearcity": (48.2082, 16.3738), "farcity": (52.5200, 13.4050)}  # Vienna vs Berlin
+        monkeypatch.setattr(scoring, "_vienna_origin", _VIENNA_COORDS)
         monkeypatch.setattr(scoring, "_geocode", lambda loc: coords[loc.strip().lower()])
         near = scoring.vienna_distance_score("NearCity")
         far = scoring.vienna_distance_score("FarCity")
         assert near == 5.0 and far == 2.8   # 0 km vs ~524 km
         assert near > far
 
-    def test_region_only_uses_region_coords_over_country_fallback(self, monkeypatch):
-        # "Lower Austria" geocodes ~60 km from Vienna (St. Pölten) → bucket 4.7,
-        # distinct from the Austria country fallback (280 km → 3.5).
+    def test_region_geolocates_to_its_own_coords(self, monkeypatch):
+        # "Lower Austria" geolocates ~60 km from Vienna (St. Pölten) → bucket 4.7.
+        monkeypatch.setattr(scoring, "_vienna_origin", _VIENNA_COORDS)
         monkeypatch.setattr(scoring, "_geocode", lambda loc: (48.2000, 15.6250))
         assert scoring.vienna_distance_score("Lower Austria") == 4.7
 
-    def test_geocode_failure_falls_back_to_country_distance(self, monkeypatch):
+    def test_geocode_failure_degrades_to_neutral(self, monkeypatch):
+        monkeypatch.setattr(scoring, "_vienna_origin", _VIENNA_COORDS)
         monkeypatch.setattr(scoring, "_geocode", lambda loc: None)
-        # Not bare, geocode fails → Austria hint → 280 km → 3.5.
-        assert scoring.vienna_distance_score("Hintertupfing, Austria") == 3.5
+        # Geolocation fails → no distance → neutral 2.4 (no country fallback).
+        assert scoring.vienna_distance_score("Hintertupfing, Austria") == 2.4
 
     def test_geocode_result_cached_second_call_not_refetched(self, monkeypatch):
         monkeypatch.setenv("RANK_GEOCODE", "true")
@@ -239,9 +240,9 @@ class TestGeocoding:
         assert second is None           # budget exhausted after one query
         assert calls == ["CityA"]
 
-    def test_geocoding_disabled_preserves_current_scores(self, monkeypatch):
+    def test_geocoding_disabled_degrades_to_neutral(self, monkeypatch):
         monkeypatch.setenv("RANK_GEOCODE", "false")
-        # A would-be-geocoded city falls back exactly as today: unknown → 2.4.
+        # Origin is cache-seeded, but an uncached city cannot geolocate → neutral.
         assert scoring.vienna_distance_score("Bregenz") == 2.4
 
     # --- live Nominatim HTTP path (_geocode_query) with mocked requests ---
@@ -319,18 +320,18 @@ class TestGeocoding:
 
 
 # ---------------------------------------------------------------------------
-# extraction guards (new for the shared-scorer module split)
+# formula guards
 # ---------------------------------------------------------------------------
 
-class TestExtractionBehaviourPreserved:
-    def test_extracted_scorer_matches_prior_scores(self):
-        # Golden scores computed from the pre-extraction formula
-        # (0.35·distance + 0.35·language + 0.30·focus, clamped/rounded). Moving
-        # the scorer into `scoring` must not change any of these.
+class TestScorerGuards:
+    def test_scorer_formula_is_deterministic_given_coords(self):
+        # 0.35·distance + 0.35·language + 0.30·focus, clamped/rounded — pinned for
+        # representative rows whose coords are the supplied geolocation result
+        # (origin is the cache-seeded Vienna point).
         cases = [
-            ({"title": "Head of Software Engineering", "location": "Wien", "language_hint": "en"}, 5.0),
-            ({"title": "Head of Engineering", "location": "Graz", "language_hint": "de"}, 3.7),
-            ({"title": "Office Assistant", "location": "Atlantis", "language_hint": "fr"}, 1.6),
+            ({"title": "Head of Software Engineering", "coords": _VIENNA_COORDS, "language_hint": "en"}, 5.0),
+            ({"title": "Head of Engineering", "coords": (47.0707, 15.4395), "language_hint": "de"}, 3.7),
+            ({"title": "Office Assistant", "language_hint": "fr"}, 1.6),
         ]
         for job, expected in cases:
             assert scoring.score_job(job) == expected
@@ -338,7 +339,7 @@ class TestExtractionBehaviourPreserved:
     def test_score_has_no_source_term(self):
         # The scorer must judge a posting on its own merits only — never on where
         # it came from — so every source competes on a level field.
-        base = {"title": "Head of Engineering", "location": "Wien", "language_hint": "en"}
+        base = {"title": "Head of Engineering", "coords": _VIENNA_COORDS, "language_hint": "en"}
         baseline = scoring.score_job(base)
         for field in ("source", "url", "company", "application_url", "provider"):
             for value in ("linkedin_api", "google_proxy", "stepstone", "", "karriere.at"):
