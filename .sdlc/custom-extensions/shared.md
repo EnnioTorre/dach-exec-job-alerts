@@ -28,7 +28,13 @@ A feature bigger than one small PR ships as several short-lived branches, not on
 the pattern that fits:
 
 - **Stacked PRs** — chain dependent branches (PR #2 builds on PR #1's branch); bottom merges first,
-  the rest rebase onto `main` and cascade. Use for a change with a natural order.
+  the rest rebase onto `main` and cascade. Use for a change with a natural order. **After the base PR
+  merges to `main`, retarget each dependent PR's base to `main` and rebase it** (`gh pr edit <n>
+  --base main` + rebase) BEFORE merging it — otherwise merging it into the now-merged base branch lands
+  the change on a dead branch, not `main`, and it is silently orphaned.
+  *Why: PR #135 (relaxed-fill, BAC-5) stayed based on #134's branch; #134 merged to `main` first, then
+  #135 merged into #134's branch — so the change never reached `main` and had to be recovered by a
+  fresh cherry-pick PR (#137). Always confirm the change is on `origin/main` after merging a stack.*
 - **Branch by abstraction** — for refactors/migrations a flag can't cover: add an interface → add the
   new impl behind it → switch callers (flag) → delete the old impl. Four small sequential PRs.
 - **Ship behind a feature flag** — new features land on `main` behind an off-by-default flag; the
@@ -39,6 +45,8 @@ the pattern that fits:
 **Anti-patterns (do not do):**
 - Force-merging incomplete work into `main` with no flag/abstraction "to keep the branch short".
 - "WIP" branches kept open for days — measure branch life from first commit, not from PR-open.
+- **Merging a stacked PR into its base branch after that base has already merged to `main`** — the
+  change lands on a dead branch, not `main`, and is silently lost (retarget to `main` first).
 
 
 ## Commits
