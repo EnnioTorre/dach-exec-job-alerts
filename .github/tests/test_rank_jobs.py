@@ -220,6 +220,208 @@ class TestHasItSignal:
 
 
 # ---------------------------------------------------------------------------
+# LinkedIn IT-context from the retained posting body (Story 8a)
+# ---------------------------------------------------------------------------
+
+class TestLinkedinItContext:
+    def _ambiguous_linkedin_row(self, **extra) -> dict:
+        # Leadership title, non-IT company name → passes the role gates but fails
+        # the title/company IT signal; only the body can confirm it.
+        row = {
+            "title": "Head of Engineering",
+            "company": "ENPULSION",
+            "application_url": "https://www.linkedin.com/jobs/view/123/",
+            "source_name": "linkedin_at",
+        }
+        row.update(extra)
+        return row
+
+    def test_linkedin_role_confirmed_it_via_body(self):
+        # Body carries an IT signal → the ambiguous LinkedIn role is confirmed.
+        confirmed = self._ambiguous_linkedin_row(
+            body_text="We seek a leader for our Kubernetes platform and cloud infrastructure."
+        )
+        assert rank_jobs.is_relevant(confirmed) is True
+        # Same row, body with no IT context → excluded.
+        off_topic = self._ambiguous_linkedin_row(
+            body_text="Lead our logistics and warehouse operations team across the region."
+        )
+        assert rank_jobs.is_relevant(off_topic) is False
+
+    def test_linkedin_ambiguous_without_body_stays_excluded(self):
+        # No body at all → an ambiguous LinkedIn title stays excluded.
+        assert rank_jobs.is_relevant(self._ambiguous_linkedin_row()) is False
+        assert rank_jobs.is_relevant(self._ambiguous_linkedin_row(body_text="")) is False
+
+    def test_body_does_not_rescue_non_linkedin_row(self):
+        # The body path is LinkedIn-only: an IT body on a non-LinkedIn ambiguous
+        # row must not confirm it.
+        row = self._ambiguous_linkedin_row(
+            application_url="https://acme.com/jobs/9",
+            source_name="karriere_at_cto",
+            body_text="Kubernetes cloud platform leadership.",
+        )
+        assert rank_jobs.is_relevant(row) is False
+
+
+# ---------------------------------------------------------------------------
+# Per-source / per-family funnel counts in jobs_ranked.json (Story 8b)
+# ---------------------------------------------------------------------------
+
+class TestRankedFunnel:
+    def test_rank_emits_per_source_and_family_funnel_counts(self, tmp_path, monkeypatch):
+        # A pool envelope with two sources / two families: a board row that is
+        # clearly in focus (shortlisted) and a LinkedIn row that never passes the
+        # role filter (reached ranking but not passed) — so the funnel can show an
+        # unranked-at-filter source instead of a false 100% yield.
+        pool = {
+            "date": "2026-11-11",
+            "pool_contribution": {
+                "by_source": {"karriere_at_cto": 1, "linkedin_at": 1},
+                "by_family": {"board": 1, "linkedin": 1},
+            },
+            "jobs": [
+                {
+                    "title": "Chief Technology Officer",
+                    "company": "Acme Software GmbH",
+                    "application_url": "https://www.karriere.at/jobs/111",
+                    "source_name": "karriere_at_cto",
+                    "pool_family": "board",
+                    "location": "Wien", "display": "Wien",
+                },
+                {
+                    "title": "Head of Sales",
+                    "company": "Acme Retail",
+                    "application_url": "https://www.linkedin.com/jobs/view/222/",
+                    "source_name": "linkedin_at",
+                    "pool_family": "linkedin",
+                    "location": "Wien", "display": "Wien",
+                },
+            ],
+        }
+        in_path = tmp_path / "jobs_pool.json"
+        in_path.write_text(json.dumps(pool), encoding="utf-8")
+        out_path = tmp_path / "jobs_ranked.json"
+        monkeypatch.setattr(rank_jobs, "_input_path", lambda *a, **k: str(in_path))
+        monkeypatch.setattr(rank_jobs, "_OUTPUT_PATH", str(out_path))
+        monkeypatch.setattr(rank_jobs, "load_location_cache", lambda *a, **k: None)
+        monkeypatch.setattr(rank_jobs, "save_location_cache", lambda *a, **k: None)
+
+        rank_jobs.main()
+
+        result = json.loads(out_path.read_text(encoding="utf-8"))
+        funnel = result["ranked_funnel"]
+
+        # Every stage is present per source and per family.
+        for stage in ("pool", "reached", "passed", "shortlisted"):
+            assert stage in funnel["by_source"]["karriere_at_cto"]
+            assert stage in funnel["by_family"]["board"]
+
+        board = funnel["by_source"]["karriere_at_cto"]
+        assert board == {"pool": 1, "reached": 1, "passed": 1, "shortlisted": 1}
+
+        # The sales LinkedIn row reached ranking but never passed the role filter:
+        # it must not look like a fully-yielding source.
+        li = funnel["by_source"]["linkedin_at"]
+        assert li["reached"] == 1
+        assert li["passed"] == 0
+        assert li["shortlisted"] == 0
+
+        # Family view mirrors the source view and carries the pool contribution.
+        assert funnel["by_family"]["board"]["pool"] == 1
+        assert funnel["by_family"]["linkedin"]["pool"] == 1
+        assert funnel["by_family"]["linkedin"]["passed"] == 0
+
+        # Existing envelope keys are untouched (additive change).
+        assert "deduped_source_stats" in result
+        assert "jobs" in result
+
+    def _run_main(self, tmp_path, monkeypatch, envelope: dict) -> dict:
+        in_path = tmp_path / "jobs_pool.json"
+        in_path.write_text(json.dumps(envelope), encoding="utf-8")
+        out_path = tmp_path / "jobs_ranked.json"
+        monkeypatch.setattr(rank_jobs, "_input_path", lambda *a, **k: str(in_path))
+        monkeypatch.setattr(rank_jobs, "_OUTPUT_PATH", str(out_path))
+        monkeypatch.setattr(rank_jobs, "load_location_cache", lambda *a, **k: None)
+        monkeypatch.setattr(rank_jobs, "save_location_cache", lambda *a, **k: None)
+        rank_jobs.main()
+        return json.loads(out_path.read_text(encoding="utf-8"))
+
+    def test_funnel_passed_counts_deduped_not_duplicates(self, tmp_path, monkeypatch):
+        # Two in-focus rows with the SAME title+company (one fingerprint) from two
+        # sources: dedup keeps one. `passed` must credit only the surviving
+        # source — not report both as having passed (honest per-source yield).
+        row = {
+            "title": "Chief Technology Officer",
+            "company": "Acme Software GmbH",
+            "location": "Wien", "display": "Wien", "pool_family": "board",
+        }
+        envelope = {
+            "date": "2026-11-11",
+            "pool_contribution": {
+                "by_source": {"karriere_at_cto": 1, "stepstone_at_cto": 1},
+                "by_family": {"board": 2},
+            },
+            "jobs": [
+                {**row, "source_name": "karriere_at_cto",
+                 "application_url": "https://www.karriere.at/jobs/111"},
+                {**row, "source_name": "stepstone_at_cto",
+                 "application_url": "https://www.stepstone.at/jobs/222"},
+            ],
+        }
+        funnel = self._run_main(tmp_path, monkeypatch, envelope)["ranked_funnel"]
+        passed = {s: funnel["by_source"][s]["passed"] for s in funnel["by_source"]}
+        # Both reached; exactly one survives dedup, so passed sums to 1, not 2.
+        assert sum(passed.values()) == 1
+        assert funnel["by_source"]["karriere_at_cto"]["reached"] == 1
+        assert funnel["by_source"]["stepstone_at_cto"]["reached"] == 1
+
+    def test_funnel_degrades_without_pool_contribution(self, tmp_path, monkeypatch):
+        # Raw-fallback input (no pool_contribution, no pool_family): main() must
+        # not raise, pool counts default to 0, and the family key falls back to
+        # `board` — the degrade path the spec's Security Surface declares.
+        envelope = {
+            "date": "2026-11-11",
+            "jobs": [
+                {
+                    "title": "Chief Technology Officer",
+                    "company": "Acme Software GmbH",
+                    "application_url": "https://www.karriere.at/jobs/111",
+                    "source_name": "karriere_at_cto",
+                    "location": "Wien", "display": "Wien",
+                },
+            ],
+        }
+        funnel = self._run_main(tmp_path, monkeypatch, envelope)["ranked_funnel"]
+        assert funnel["by_source"]["karriere_at_cto"]["pool"] == 0
+        assert funnel["by_source"]["karriere_at_cto"]["shortlisted"] == 1
+        # No pool_family on the row → the board default key carries it.
+        assert "board" in funnel["by_family"]
+        assert funnel["by_family"]["board"]["pool"] == 0
+
+    def test_funnel_survives_malformed_pool_contribution(self, tmp_path, monkeypatch):
+        # A malformed pool_contribution (non-dict values from a corrupt artifact)
+        # must degrade, not crash — one bad field never aborts the rank.
+        envelope = {
+            "date": "2026-11-11",
+            "pool_contribution": {"by_source": ["oops"], "by_family": "bad"},
+            "jobs": [
+                {
+                    "title": "Chief Technology Officer",
+                    "company": "Acme Software GmbH",
+                    "application_url": "https://www.karriere.at/jobs/111",
+                    "source_name": "karriere_at_cto",
+                    "pool_family": "board",
+                    "location": "Wien", "display": "Wien",
+                },
+            ],
+        }
+        funnel = self._run_main(tmp_path, monkeypatch, envelope)["ranked_funnel"]
+        assert funnel["by_source"]["karriere_at_cto"]["pool"] == 0
+        assert funnel["by_source"]["karriere_at_cto"]["shortlisted"] == 1
+
+
+# ---------------------------------------------------------------------------
 # fingerprint (dedup key)
 # ---------------------------------------------------------------------------
 
