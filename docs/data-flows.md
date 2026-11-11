@@ -48,7 +48,7 @@ sequenceDiagram
     R->>R: is_relevant() filter [L137] + _source_domain_ok() [L119]
     R->>R: is_relevant_relaxed() backfill to target [L189]
     R->>R: fingerprint() dedup [L609]
-    R->>R: score_job() = 0.35·loc + 0.35·lang + 0.30·relevance [L600]
+    R->>R: scoring.score_job() = 0.35·loc + 0.35·lang + 0.30·relevance
     R->>R: sort desc, English-preference, source diversify, per-source cap
     R->>OUT: write jobs_ranked.json
     CI->>OUT: load_data() (jobs_enriched.json preferred) [L13]
@@ -114,15 +114,17 @@ that reads/writes it:
 1. **Produce it** in the relevant parser(s) in `scrape_jobs.py` (the dict built per job).
 2. If AI should populate/correct it, extend the prompt + parse in
    [ai_pre_rank_enrich.py](../.github/scripts/ai_pre_rank_enrich.py).
-3. **Consume it** in `rank_jobs.py` if it affects filtering/scoring (`is_relevant`, `score_job`).
+3. **Consume it** in `rank_jobs.py` (filters, e.g. `is_relevant`) or `scoring.py` (`score_job`) if it
+   affects filtering/scoring.
 4. **Display it** in `create_issue.py` `format_body()` (line 143) if it belongs in the digest.
 5. Update fixtures/assertions in the relevant tests.
 
 ### Changing the ranking formula or filters
 
-- Scoring weights / components → `score_job()` (line 600) and the three component functions
-  (`vienna_distance_score` L457, `language_score` L501, `it_management_focus_score` L517) in
-  [rank_jobs.py](../.github/scripts/rank_jobs.py).
+- Scoring weights / components → `score_job()` and the three component functions
+  (`vienna_distance_score`, `language_score`, `it_management_focus_score`) in
+  [scoring.py](../.github/scripts/scoring.py). Distance is geolocated (Nominatim, no static table);
+  a geocoding outage fails the run ([ADR-0002](adrs/ADR-0002-no-synthetic-fallback-external-resources.md)).
 - Role rules → [position_filter.json](../.github/config/position_filter.json)
   (`excluded_areas`, `non_it_excluded`, `in_focus_roles`, …) via `position_filter.POSITION_FILTER`.
 - URL/title guards → `BAD_URL_PATTERNS` (L68), `NON_JOB_TITLE_PATTERNS` (L56).
