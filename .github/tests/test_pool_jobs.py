@@ -7,6 +7,8 @@ redistribution, and the score-all geocoding budget. Geocoding is kept hermetic b
 the autouse fixture (no live Nominatim), mirroring `test_scoring.py`.
 """
 
+import json
+
 import pool_jobs
 import pytest
 import scoring
@@ -143,3 +145,78 @@ class TestScoreAllGeocodeBudget:
         pool_jobs.score_all(rows)
         assert len(calls) <= 2                      # budget caps the lookups
         assert all(isinstance(r["score"], float) for r in rows)  # beyond-budget rows still scored (neutral distance)
+
+
+# ---------------------------------------------------------------------------
+# envelope assembly + main() orchestration
+# ---------------------------------------------------------------------------
+
+class TestBuildEnvelope:
+    def test_build_envelope_carries_pool_contribution_and_stats(self, monkeypatch):
+        monkeypatch.setenv("POOL_TARGET_SIZE", "4")
+        monkeypatch.setenv("POOL_FAMILY_MIN", "1")
+        jobs = [
+            _scored("board", 9.0, "b1"),
+            _scored("board", 8.0, "b2"),
+            _scored("linkedin", 3.0, "l1"),
+            _scored("google", 2.0, "g1"),
+        ]
+        raw = {
+            "date": "2026-11-11", "stats": {"s": 1}, "family_stats": {"linkedin": 1},
+            "deduped_source_stats": {"x": 1}, "jobs": jobs,
+        }
+        env = pool_jobs._build_envelope(raw, jobs)
+
+        assert env["date"] == "2026-11-11"
+        assert env["stats"] == {"s": 1}
+        assert env["family_stats"] == {"linkedin": 1}
+        assert env["deduped_source_stats"] == {"x": 1}
+        assert env["pool_target_size"] == 4 and env["pool_family_min"] == 1
+        assert len(env["jobs"]) == 4
+
+        by_family = env["pool_contribution"]["by_family"]
+        assert by_family == {"board": 2, "linkedin": 1, "google": 1}  # min for L/G, merit for board
+        assert "board_b1" in env["pool_contribution"]["by_source"]
+
+        for fam in ("board", "linkedin", "google"):
+            assert set(env["pool_stats"][fam]) == {"scored", "min_filled", "merit_filled", "contributed"}
+        assert env["pool_stats"]["linkedin"]["min_filled"] == 1
+        assert env["pool_stats"]["board"]["merit_filled"] == 2
+        assert env["pool_stats"]["board"]["min_filled"] == 0
+
+
+class TestMain:
+    def test_main_reads_raw_writes_pool(self, tmp_path, monkeypatch):
+        raw = {
+            "date": "2026-11-11", "stats": {}, "family_stats": {}, "deduped_source_stats": {},
+            "jobs": [_scrape_row("board", 0), _scrape_row("linkedin", 0), _scrape_row("google", 0)],
+        }
+        in_path = tmp_path / "jobs_raw.json"
+        out_path = tmp_path / "jobs_pool.json"
+        in_path.write_text(json.dumps(raw), encoding="utf-8")
+        monkeypatch.setattr(pool_jobs, "_INPUT_PATH", str(in_path))
+        monkeypatch.setattr(pool_jobs, "_OUTPUT_PATH", str(out_path))
+
+        pool_jobs.main()
+
+        written = json.loads(out_path.read_text(encoding="utf-8"))
+        assert len(written["jobs"]) == 3
+        assert all(isinstance(j["score"], float) and "pool_family" in j for j in written["jobs"])
+        assert "pool_contribution" in written and "pool_stats" in written
+
+    def test_main_fail_loud_persists_cache_then_raises(self, tmp_path, monkeypatch):
+        in_path = tmp_path / "jobs_raw.json"
+        in_path.write_text(json.dumps({"jobs": [_scrape_row("board", 0)]}), encoding="utf-8")
+        monkeypatch.setattr(pool_jobs, "_INPUT_PATH", str(in_path))
+        monkeypatch.setattr(pool_jobs, "_OUTPUT_PATH", str(tmp_path / "jobs_pool.json"))
+
+        def _boom(job):
+            raise scoring.GeocodeUnavailable("nominatim down")
+
+        saved: list[bool] = []
+        monkeypatch.setattr(pool_jobs, "score_job", _boom)
+        monkeypatch.setattr(pool_jobs, "_save_geocode_cache", lambda: saved.append(True))
+
+        with pytest.raises(scoring.GeocodeUnavailable):
+            pool_jobs.main()
+        assert saved == [True]  # cache persisted in the finally despite the raise
