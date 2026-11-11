@@ -22,6 +22,7 @@ flowchart TD
     end
     subgraph deterministic [Deterministic core — always runs]
         SCRAPE[scrape_jobs.py] --> RAW[(jobs_raw.json)]
+        RAW --> POOL[pool_jobs.py] --> POOLF[(jobs_pool.json)]
         RAW --> RANK[rank_jobs.py] --> RANKED[(jobs_ranked.json)]
         RANKED --> VAL[test_scraper_loop.py]
         RANKED --> ISSUE[create_issue.py] --> OUT[(GitHub Issue)]
@@ -35,6 +36,7 @@ flowchart TD
         ENRICHED -.preferred input.-> ISSUE
     end
     SRC --> SCRAPE
+    POOLF -.Story 5 points AI + rank at the pool.-> RANK
     MODELS[github_models.py] -.used by.-> PRE
     MODELS -.used by.-> SUG
     MODELS -.used by.-> ENR
@@ -50,7 +52,8 @@ Communication direction is strictly downstream through files. The only "upstream
 |---|---|---|---|
 | `scrape_jobs.py` | `sources.json` | reads + validates at load | `_load_source_config()` line 159 |
 | `scrape_jobs.py` | search providers | HTTP via fallback chain | `_fetch_google_proxy_via_provider()` line 743 |
-| `scrape_jobs.py` | `jobs_raw.json` | writes | `main()` line 2160 |
+| `scrape_jobs.py` | `jobs_raw.json` | writes (all deduped rows — order-based cap removed) | `main()` |
+| `pool_jobs.py` | `jobs_raw.json` → `jobs_pool.json` | reads, scores every row, writes the merit-based pool (per-family-min + merit) | `main()` (ADR-0003) |
 | `ai_pre_rank_enrich.py` | `jobs_raw.json` → `jobs_raw_ai.json` | reads/writes | module header |
 | `rank_jobs.py` | `jobs_raw_ai.json` ?? `jobs_raw.json` | reads (AI file preferred) | `main()` line 637 |
 | `rank_jobs.py` | `jobs_ranked.json` | writes | `main()` line 720 |
