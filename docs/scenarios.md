@@ -53,7 +53,11 @@ change checklists live in [data-flows.md](data-flows.md#change-impact-map).
 
 **Flow:** `format_body()` (create_issue.py:143) renders a header (counts + formula), a **Top-15
 table** (`# | Role | Company | Location | Lang | Score`, title links to the job), and a
-**source-performance table** (Scraped / Unique / Shortlist / Top-15 / Yield).
+**source-performance table**. With the Story-8 funnel present it reports the honest per-source funnel
+(`Scraped / Pool / Reached / Passed / Shortlist / Top-15 / Pass-share`) plus each family's **pool
+contribution**; a source whose rows never reached ranking shows pass-share `—`, not a false 100%
+(`_source_perf_funnel_section`). An older `jobs_ranked.json` with no `ranked_funnel` falls back to the
+legacy `Scraped / Unique / Shortlist / Top-15 / Yield` table.
 
 **Business rules:**
 

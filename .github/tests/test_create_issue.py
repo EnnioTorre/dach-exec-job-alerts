@@ -120,3 +120,77 @@ class TestFormatBody:
         }
         body = create_issue.format_body(data)
         assert "Wien, Österreich" in body
+
+
+def _funnel_data():
+    # A pool/reached/passed/shortlisted funnel across three sources: a board
+    # source that passes, a LinkedIn search source with a 50% pass-share, and a
+    # Google source whose rows never reached ranking.
+    return {
+        "date": "2026-11-11",
+        "jobs": [],
+        "source_stats": {"karriere_at_cto": 5, "linkedin_at": 10, "google_jobs_at": 3},
+        "ranked_funnel": {
+            "by_source": {
+                "karriere_at_cto": {"pool": 5, "reached": 4, "passed": 3, "shortlisted": 2},
+                "linkedin_at": {"pool": 10, "reached": 10, "passed": 5, "shortlisted": 1},
+                "google_jobs_at": {"pool": 0, "reached": 0, "passed": 0, "shortlisted": 0},
+            },
+            "by_family": {
+                "linkedin": {"pool": 10},
+                "google": {"pool": 0},
+                "board": {"pool": 5},
+            },
+        },
+    }
+
+
+def _source_row(body: str, src: str) -> str:
+    return next(ln for ln in body.splitlines() if f"`{src}`" in ln)
+
+
+class TestSourcePerformanceFunnel:
+    def test_funnel_reports_reached_and_passed_per_source(self):
+        body = create_issue.format_body(_funnel_data())
+        assert "| Source | Scraped | Pool | Reached | Passed | Shortlist | Top 15 | Pass-share |" in body
+        row = _source_row(body, "karriere_at_cto")
+        # Scraped 5, Pool 5, Reached 4, Passed 3, Shortlist 2 in order.
+        assert "| 5 | 5 | 4 | 3 | 2 |" in row
+
+    def test_funnel_reports_family_pool_contribution(self):
+        body = create_issue.format_body(_funnel_data())
+        assert "Pool contribution by family:" in body
+        assert "linkedin 10" in body
+        assert "board 5" in body
+
+    def test_funnel_no_100pct_yield_for_unranked_source(self):
+        body = create_issue.format_body(_funnel_data())
+        row = _source_row(body, "google_jobs_at")
+        # reached == 0 → pass-share is '—', never a false 100%.
+        assert row.rstrip().endswith("| — |")
+        assert "100%" not in row
+
+    def test_funnel_reports_search_source_pass_share(self):
+        body = create_issue.format_body(_funnel_data())
+        row = _source_row(body, "linkedin_at")
+        # passed 5 / reached 10 = 50% pass-share.
+        assert row.rstrip().endswith("| 50% |")
+
+    def test_funnel_summary_drops_after_filter_dedup_wording(self):
+        body = create_issue.format_body(_funnel_data())
+        assert "reached ranking" in body
+        assert "passed the role filter" in body
+        assert "after filter + dedup" not in body
+
+    def test_source_table_falls_back_without_funnel(self):
+        # A pre-Story-8 artifact (no ranked_funnel) renders the legacy table.
+        data = {
+            "date": "2026-11-11",
+            "jobs": [],
+            "source_stats": {"karriere_at_cto": 5},
+            "deduped_source_stats": {"karriere_at_cto": 3},
+        }
+        body = create_issue.format_body(data)
+        assert "| Source | Scraped | Unique | Shortlist | Top 15 | Yield |" in body
+        assert "after filter + dedup" in body
+        assert "Reached | Passed" not in body

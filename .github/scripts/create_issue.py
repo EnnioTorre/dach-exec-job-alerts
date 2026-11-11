@@ -42,6 +42,128 @@ def ensure_label(label: str, color: str = "0075ca") -> bool:
     return False
 
 
+def _source_perf_funnel_section(data: dict, stats: dict, jobs: list[dict],
+                                digest_jobs: list[dict]) -> list[str] | None:
+    """Render the honest Source-Performance section from the Story-8 per-source /
+    per-family funnel (pool→reached→passed→shortlisted) in `jobs_ranked.json`.
+    Returns None when no funnel is present (pre-Story-8 artifact) so the caller
+    renders the legacy deduped-unique table instead."""
+    funnel = data.get("ranked_funnel")
+    funnel = funnel if isinstance(funnel, dict) else {}
+    by_source = funnel.get("by_source", {})
+    by_source = by_source if isinstance(by_source, dict) else {}
+    by_family = funnel.get("by_family", {})
+    by_family = by_family if isinstance(by_family, dict) else {}
+    if not by_source:
+        return None
+
+    def _f(src: str, stage: str) -> int:
+        row = by_source.get(src, {})
+        return row.get(stage, 0) if isinstance(row, dict) else 0
+
+    def _pct(num: int, den: int) -> str:
+        return "—" if den <= 0 else f"{round(100 * num / den)}%"
+
+    top15_by_source: dict = {}
+    for j in digest_jobs:
+        src = j.get("source_name", "unknown")
+        top15_by_source[src] = top15_by_source.get(src, 0) + 1
+
+    active_sources = sum(1 for c in stats.values() if c > 0)
+    productive = sum(1 for s in stats if _f(s, "passed") > 0)
+    dead_weight = [s for s, c in stats.items() if c > 0 and _f(s, "passed") == 0]
+    total_scraped = sum(stats.values())
+    total_reached = sum(_f(s, "reached") for s in stats)
+    total_passed = sum(_f(s, "passed") for s in stats)
+
+    out = [
+        "## 📊 Source Performance",
+        "",
+        f"**{len(stats)}** sources configured · **{active_sources}** returned listings · "
+        f"**{productive}** passed the role filter.",
+        f"Funnel: **{total_scraped}** scraped → **{total_reached}** reached ranking → "
+        f"**{total_passed}** passed the role filter → **{len(jobs)}** shortlisted → "
+        f"**{len(digest_jobs)}** in the Top 15 digest.",
+        "",
+    ]
+
+    fam_pool = sorted(
+        ((f, (r.get("pool", 0) if isinstance(r, dict) else 0)) for f, r in by_family.items()),
+        key=lambda x: x[1],
+        reverse=True,
+    )
+    if fam_pool:
+        out += [
+            "**Pool contribution by family:** "
+            + " · ".join(f"{f} {p}" for f, p in fam_pool) + ".",
+            "",
+        ]
+
+    out += [
+        "_Pool = contributed to the merit pool · Reached = reached ranking · "
+        "Passed = cleared the role filter (post-dedup) · Pass-share = Passed ÷ Reached. "
+        "Sources are ranked by shortlist, then pass._",
+        "",
+    ]
+
+    ordered = sorted(
+        stats.items(),
+        key=lambda x: (_f(x[0], "shortlisted"), _f(x[0], "passed"), _f(x[0], "reached")),
+        reverse=True,
+    )
+
+    with_ai = bool(
+        (data.get("ai_enrichment") or {}).get("source_analysis")
+    )
+    ai_src_map = {
+        s["source"]: s
+        for s in (data.get("ai_enrichment") or {}).get("source_analysis", [])
+    }
+    if with_ai:
+        out += [
+            "| Source | Scraped | Pool | Reached | Passed | Shortlist | Top 15 | Pass-share | AI Quality | Recommendation |",
+            "|--------|--------:|-----:|--------:|-------:|----------:|-------:|-----------:|------------|----------------|",
+        ]
+    else:
+        out += [
+            "| Source | Scraped | Pool | Reached | Passed | Shortlist | Top 15 | Pass-share |",
+            "|--------|--------:|-----:|--------:|-------:|----------:|-------:|-----------:|",
+        ]
+    for src, scraped in ordered:
+        pool, reached = _f(src, "pool"), _f(src, "reached")
+        passed, shortlist = _f(src, "passed"), _f(src, "shortlisted")
+        top15 = top15_by_source.get(src, 0)
+        flag = " 🏆" if top15 else (" ⚠️" if scraped > 0 and passed == 0 else "")
+        row = (
+            f"| `{src}`{flag} | {scraped} | {pool} | {reached} | {passed} | "
+            f"{shortlist} | {top15} | {_pct(passed, reached)} |"
+        )
+        if with_ai:
+            ai_info = ai_src_map.get(src, {})
+            quality = ai_info.get("quality_rating", "—")
+            rec = ai_info.get("recommendation", "—")
+            note = ai_info.get("note", "")
+            rec_str = f"{rec} — {note}" if note else rec
+            row += f" {quality}/5 | {rec_str} |"
+        out.append(row)
+
+    if dead_weight:
+        preview = ", ".join(f"`{s}`" for s in dead_weight[:12])
+        more = f" (+{len(dead_weight) - 12} more)" if len(dead_weight) > 12 else ""
+        out += [
+            "",
+            f"⚠️ **Dead weight** ({len(dead_weight)} scraped but 0 passed the role filter): "
+            f"{preview}{more}",
+        ]
+
+    out += [
+        "",
+        "_🏆 = contributed at least one role to the Top 15 · "
+        "⚠️ = scraped but 0 passed the role filter._",
+    ]
+    return out
+
+
 def format_body(data: dict) -> str:
     today = data.get("date", str(date.today()))
     jobs: list[dict] = data.get("jobs", [])
@@ -126,6 +248,20 @@ def format_body(data: dict) -> str:
     lines.append("")
 
     # ---- Source performance table ----
+    # Prefer the Story-8 per-source/per-family funnel (pool→reached→passed→
+    # shortlisted); fall back to the legacy deduped-unique table below when a
+    # pre-Story-8 jobs_ranked.json has no ranked_funnel.
+    funnel_section = _source_perf_funnel_section(data, stats, jobs, digest_jobs)
+    if funnel_section is not None:
+        lines += funnel_section
+        lines += [
+            "",
+            "---",
+            f"*Auto-generated by [dach-exec-job-alerts](https://github.com/{repo}/actions) · {today}*",
+        ]
+        return "\n".join(lines)
+
+    # ---- Source performance table (legacy fallback) ----
     # Show the true funnel per source, not just the raw scrape count:
     #   Scraped    → what the source pulled in (raw, pre-dedup)
     #   Unique     → de-duplicated jobs it contributed to the pool (the real
