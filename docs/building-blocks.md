@@ -57,25 +57,36 @@ Grouped by pipeline capability. Line numbers are approximate anchors into the so
 | `_infer_language_hint` | scrape_jobs.py:1668 | Dependency-free fallback scoring (umlauts, function words, job stems) + optional `langdetect` |
 | `_serp_lang_hint` | scrape_jobs.py:1831 | Language for proxy/SERP rows (never trusts title prose) |
 
-## Capability: Ranking (filter + dedup + score)
+## Capability: Ranking (filter + dedup)
 
 **Module:** [.github/scripts/rank_jobs.py](../.github/scripts/rank_jobs.py)
 
-| Symbol | File:line | Responsibility | Key signature |
+| Symbol | File | Responsibility | Key signature |
 |---|---|---|---|
-| `main` | rank_jobs.py:581 | Orchestrate filter→dedup→score→diversify→cap→write | `() -> None` |
-| `is_relevant` | rank_jobs.py:137 | Strict relevance gate (role + IT signal + domain) | `(job) -> bool` |
-| `is_relevant_relaxed` | rank_jobs.py:189 | Looser gate to backfill to target count | `(job) -> bool` |
-| `_hard_reject_common` | rank_jobs.py:101 | Shared hard-reject (bad URL/title/AI reject) | `(job) -> bool` |
-| `_has_it_signal` | rank_jobs.py:93 | Require IT keyword in title/company | `(job) -> bool` |
-| `_source_domain_ok` | rank_jobs.py:119 | URL must match source platform domain | `(job) -> bool` |
-| `fingerprint` | rank_jobs.py:571 | Dedup key `title|company` (normalized) | `(job) -> str` |
-| `score_job` | rank_jobs.py:557 | `0.35·loc + 0.35·lang + 0.30·relevance`, clamp [1,5] | `(job) -> float` |
-| `vienna_distance_score` | rank_jobs.py:457 | Location score by Haversine distance from Vienna | `(location) -> float` |
-| `language_score` | rank_jobs.py:501 | en=5.0, de=3.0, other=1.2 | `(hint, company) -> float` |
-| `it_management_focus_score` | rank_jobs.py:517 | Role-fit tiers (mgmt+IT=5.0 … non-IT=1.0) | `(title) -> float` |
+| `main` | rank_jobs.py | Orchestrate filter→dedup→score→diversify→cap→write | `() -> None` |
+| `is_relevant` | rank_jobs.py | Strict relevance gate (role + IT signal + domain) | `(job) -> bool` |
+| `is_relevant_relaxed` | rank_jobs.py | Looser gate to backfill to target count | `(job) -> bool` |
+| `_hard_reject_common` | rank_jobs.py | Shared hard-reject (bad URL/title/AI reject) | `(job) -> bool` |
+| `_has_it_signal` | rank_jobs.py | Require IT keyword in title/company | `(job) -> bool` |
+| `_source_domain_ok` | rank_jobs.py | URL must match source platform domain | `(job) -> bool` |
+| `fingerprint` | rank_jobs.py | Dedup key `title|company` (normalized) | `(job) -> str` |
 | `excluded_areas` / `non_it_excluded` | [position_filter.json](../.github/config/position_filter.json) | Hard exclude lists (sales, industrial, mechanical…), loaded via `position_filter.POSITION_FILTER` | config lists |
-| `BAD_URL_PATTERNS` / `NON_JOB_TITLE_PATTERNS` | rank_jobs.py:68 / 56 | Reject listing/search pages & non-job titles | const |
+| `BAD_URL_PATTERNS` / `NON_JOB_TITLE_PATTERNS` | rank_jobs.py | Reject listing/search pages & non-job titles | const |
+
+## Capability: Scoring (shared) & geolocation
+
+**Modules:** [.github/scripts/scoring.py](../.github/scripts/scoring.py) (scorer + geocoding),
+[.github/scripts/text_match.py](../.github/scripts/text_match.py) (shared `_contains_any` /
+`_contains_keyword` matchers). Extracted from `rank_jobs.py` so the final rank and future stages
+score by one formula.
+
+| Symbol | File | Responsibility | Key signature |
+|---|---|---|---|
+| `score_job` | scoring.py | `0.35·loc + 0.35·lang + 0.30·relevance`, clamp [1,5] | `(job) -> float` |
+| `vienna_distance_score` | scoring.py | Distance score from a **geolocated** Vienna origin (Nominatim); no static coordinate table | `(location) -> float` |
+| `language_score` | scoring.py | en=5.0, de=3.0, other=1.2 | `(hint, company) -> float` |
+| `it_management_focus_score` | scoring.py | Role-fit tiers (mgmt+IT=5.0 … non-IT=1.0) | `(title) -> float` |
+| `_geocode` / `GeocodeUnavailable` | scoring.py | Bounded, cached, retried Nominatim lookup; **raises on outage** (ADR-0002), neutral on miss/disabled | `(location) -> coords \| None` |
 
 ## Capability: Validation loop
 

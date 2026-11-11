@@ -95,7 +95,7 @@ def _is_out_of_geo(country: str, region: str | None = None) -> bool:
 
 
 # --- Nominatim addressdetails resolver (region/country/coords per place) -------
-# Same public endpoint and usage-policy discipline as rank_jobs._geocode
+# Same public endpoint and usage-policy discipline as scoring._geocode
 # (ADR-0001), plus addressdetails=1 so the response carries address.state /
 # address.country. Bounded per run, cached per place, spaced >=1 req/s, and fully
 # degrading — any failure returns None. Its budget/cache are independent of the
@@ -247,7 +247,7 @@ def load_location_cache() -> None:
 
 def save_location_cache() -> None:
     """Persist the per-place cache (hits + misses) to LOCATION_CACHE_PATH. Tolerates
-    OSError; empty path is a no-op. Mirrors rank_jobs._save_geocode_cache."""
+    OSError; empty path is a no-op. Mirrors scoring._save_geocode_cache."""
     path = _location_cache_path()
     if not path:
         return
