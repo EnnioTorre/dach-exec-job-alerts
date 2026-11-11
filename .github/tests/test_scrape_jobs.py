@@ -746,3 +746,60 @@ class TestNormalizeLocations:
         assert rows[1]["location"] == "—, —, —"
 
 
+# ---------------------------------------------------------------------------
+# LinkedIn posting body retention (Story 6) — the body already fetched for
+# language detection is kept on the row for the ranker's IT-context check.
+# ---------------------------------------------------------------------------
+
+def _guest_card(job_id: str, title: str) -> str:
+    """One LinkedIn guest search-result card for `parse_linkedin_guest_api`."""
+    return (
+        f'<li><div data-entity-urn="urn:li:jobPosting:{job_id}"></div>'
+        f'<a href="https://www.linkedin.com/jobs/view/{job_id}/?trk=x">link</a>'
+        f'<h3 class="base-search-card__title">{title}</h3>'
+        f'<h4 class="base-search-card__subtitle">Acme</h4>'
+        f'<span class="job-search-card__location">Wien</span></li>'
+    )
+
+
+def _guest_body(text: str) -> str:
+    return f'<div class="show-more-less-html__markup">{text}</div>'
+
+
+class TestLinkedinBodyRetention:
+    @pytest.fixture(autouse=True)
+    def _reset(self, monkeypatch):
+        scrape_jobs._LINKEDIN_LANG_CACHE.clear()
+        scrape_jobs._LINKEDIN_BODY_CACHE.clear()
+        monkeypatch.setattr(scrape_jobs, "_linkedin_lang_enrich_used", 0)
+        monkeypatch.setenv("SCRAPER_LINKEDIN_LANG_ENRICH", "true")
+
+    def test_linkedin_body_retained_on_row(self, monkeypatch):
+        # An English title (no (m/w/d) marker) triggers the bounded guest-body
+        # fetch; the row must carry the fetched description text.
+        body = "We seek a Head of Engineering to lead our Kubernetes platform team."
+        monkeypatch.setattr(scrape_jobs, "fetch", lambda url, retries=1: _guest_body(body))
+        html = _guest_card("12345", "Head of Engineering")
+        jobs = scrape_jobs.parse_linkedin_guest_api(html, "linkedin_at")
+        assert len(jobs) == 1
+        assert jobs[0]["body_text"] == body
+
+    def test_linkedin_body_fetch_respects_existing_cap(self, monkeypatch):
+        # With the enrichment cap at 1, only the first card fetches a body; the
+        # second is past the cap and carries an empty body — no extra fetch.
+        monkeypatch.setenv("SCRAPER_LINKEDIN_LANG_ENRICH_MAX", "1")
+        calls: list[str] = []
+
+        def fake_fetch(url, retries=1):
+            calls.append(url)
+            return _guest_body("Lead the cloud platform team.")
+
+        monkeypatch.setattr(scrape_jobs, "fetch", fake_fetch)
+        html = _guest_card("111", "Head of Engineering") + _guest_card("222", "VP Engineering")
+        jobs = scrape_jobs.parse_linkedin_guest_api(html, "linkedin_at")
+        assert len(jobs) == 2
+        assert len(calls) == 1                      # cap honoured — one fetch only
+        assert jobs[0]["body_text"] != ""           # first card retained its body
+        assert jobs[1]["body_text"] == ""           # past the cap → no body
+
+
