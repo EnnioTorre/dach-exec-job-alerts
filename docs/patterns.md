@@ -33,7 +33,7 @@
 | Parser functions | `parse_<source_or_format>` | `parse_stepstone`, `parse_json_jobs` |
 | Private helpers | leading underscore | `_load_source_config`, `_domain_family`, `_extract_search_result_url` |
 | Scoring functions | `<dimension>_score` / `score_job` | `language_score`, `vienna_distance_score`, `score_job` |
-| Module-level constants | UPPER_SNAKE | `PARSER_MAP`, `EXCLUDE_KEYWORDS`, `_RATE_LIMIT_CONFIG`, `MAX_TOKENS` |
+| Module-level constants | UPPER_SNAKE | `PARSER_MAP`, `BAD_URL_PATTERNS`, `_RATE_LIMIT_CONFIG`, `MAX_TOKENS` |
 | Env vars | `SCRAPER_*` (scrape), `TEST_*` (validation), `RANK_*` (ranking) | `SCRAPER_GOOGLE_MODE`, `TEST_MIN_RAW`, `RANK_TARGET_COUNT` |
 | Source names | `<board>_<region>_<role>_<page>` | `linkedin_at_leader_0`, `google_stepstone_de` |
 | Tests | `test_<unit>` in `test_<script>.py` | `test_rank_jobs.py::test_score_job` |

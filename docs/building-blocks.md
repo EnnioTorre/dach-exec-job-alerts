@@ -63,19 +63,19 @@ Grouped by pipeline capability. Line numbers are approximate anchors into the so
 
 | Symbol | File:line | Responsibility | Key signature |
 |---|---|---|---|
-| `main` | rank_jobs.py:637 | Orchestrate filter→dedup→score→diversify→cap→write | `() -> None` |
-| `is_relevant` | rank_jobs.py:269 | Strict relevance gate (role + IT signal + domain) | `(job) -> bool` |
-| `is_relevant_relaxed` | rank_jobs.py:320 | Looser gate to backfill to target count | `(job) -> bool` |
-| `_hard_reject_common` | rank_jobs.py:225 | Shared hard-reject (bad URL/title/AI reject) | `(job) -> bool` |
-| `_has_it_signal` | rank_jobs.py:182 | Require IT keyword in title/company | `(job) -> bool` |
-| `_source_domain_ok` | rank_jobs.py:239 | URL must match source platform domain | `(job) -> bool` |
-| `fingerprint` | rank_jobs.py:609 | Dedup key `title|company` (normalized) | `(job) -> str` |
-| `score_job` | rank_jobs.py:600 | `0.35·loc + 0.35·lang + 0.30·relevance`, clamp [1,5] | `(job) -> float` |
-| `vienna_distance_score` | rank_jobs.py:522 | Location score by Haversine distance from Vienna | `(location) -> float` |
-| `language_score` | rank_jobs.py:539 | en=5.0, de=3.0, other=1.2 | `(hint, company) -> float` |
-| `it_management_focus_score` | rank_jobs.py:559 | Role-fit tiers (mgmt+IT=5.0 … non-IT=1.0) | `(title) -> float` |
-| `EXCLUDE_KEYWORDS` / `NON_IT_EXCLUDE_KEYWORDS` | rank_jobs.py:92 / 111 | Hard exclude lists (sales, industrial, mechanical…) | const lists |
-| `BAD_URL_PATTERNS` / `NON_JOB_TITLE_PATTERNS` | rank_jobs.py:209 / 204 | Reject listing/search pages & non-job titles | const |
+| `main` | rank_jobs.py:581 | Orchestrate filter→dedup→score→diversify→cap→write | `() -> None` |
+| `is_relevant` | rank_jobs.py:137 | Strict relevance gate (role + IT signal + domain) | `(job) -> bool` |
+| `is_relevant_relaxed` | rank_jobs.py:189 | Looser gate to backfill to target count | `(job) -> bool` |
+| `_hard_reject_common` | rank_jobs.py:101 | Shared hard-reject (bad URL/title/AI reject) | `(job) -> bool` |
+| `_has_it_signal` | rank_jobs.py:93 | Require IT keyword in title/company | `(job) -> bool` |
+| `_source_domain_ok` | rank_jobs.py:119 | URL must match source platform domain | `(job) -> bool` |
+| `fingerprint` | rank_jobs.py:571 | Dedup key `title|company` (normalized) | `(job) -> str` |
+| `score_job` | rank_jobs.py:557 | `0.35·loc + 0.35·lang + 0.30·relevance`, clamp [1,5] | `(job) -> float` |
+| `vienna_distance_score` | rank_jobs.py:457 | Location score by Haversine distance from Vienna | `(location) -> float` |
+| `language_score` | rank_jobs.py:501 | en=5.0, de=3.0, other=1.2 | `(hint, company) -> float` |
+| `it_management_focus_score` | rank_jobs.py:517 | Role-fit tiers (mgmt+IT=5.0 … non-IT=1.0) | `(title) -> float` |
+| `excluded_areas` / `non_it_excluded` | [position_filter.json](../.github/config/position_filter.json) | Hard exclude lists (sales, industrial, mechanical…), loaded via `position_filter.POSITION_FILTER` | config lists |
+| `BAD_URL_PATTERNS` / `NON_JOB_TITLE_PATTERNS` | rank_jobs.py:68 / 56 | Reject listing/search pages & non-job titles | const |
 
 ## Capability: Validation loop
 

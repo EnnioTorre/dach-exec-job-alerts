@@ -12,9 +12,9 @@ Find the right code fast. Pick the task closest to yours.
 | Add a new source *type* / parser | [data-flows.md](data-flows.md#adding-a-new-parser-type) + [patterns.md](patterns.md#file-location-conventions) | [.github/scripts/scrape_jobs.py](../.github/scripts/scrape_jobs.py) (`PARSER_MAP` L2044, router L2063) |
 | Fix how a site is parsed | [building-blocks.md](building-blocks.md#capability-parsing-source-content--job-dicts) | `scrape_jobs.py` `parse_stepstone` L1827 / `parse_karriere_at` L1875 / `parse_jobs_ch` L1921 |
 | Fix wrong language on a job | [patterns.md](patterns.md#language-detection-convention--never-trust-the-title) + [scenarios.md](scenarios.md#scenario-4--correct-mislabeled-language) | `scrape_jobs.py` `detect_job_language` L1572 |
-| Change the ranking score / weights | [data-flows.md](data-flows.md#changing-the-ranking-formula-or-filters) + [scenarios.md](scenarios.md#scenario-2--read-the-ranked-shortlist) | [.github/scripts/rank_jobs.py](../.github/scripts/rank_jobs.py) `score_job` L600 |
-| Exclude irrelevant roles (filters) | [scenarios.md](scenarios.md#scenario-3--exclude-irrelevant-roles) | `rank_jobs.py` `EXCLUDE_KEYWORDS` L92, `is_relevant` L269 |
-| Fix dedup (duplicate roles in digest) | [building-blocks.md](building-blocks.md#capability-ranking-filter--dedup--score) | `rank_jobs.py` `fingerprint` L609 |
+| Change the ranking score / weights | [data-flows.md](data-flows.md#changing-the-ranking-formula-or-filters) + [scenarios.md](scenarios.md#scenario-2--read-the-ranked-shortlist) | [.github/scripts/rank_jobs.py](../.github/scripts/rank_jobs.py) `score_job` L557 |
+| Exclude irrelevant roles (filters) | [scenarios.md](scenarios.md#scenario-3--exclude-irrelevant-roles) | [position_filter.json](../.github/config/position_filter.json) (`excluded_areas` / `non_it_excluded`), `rank_jobs.py` `is_relevant` L137 |
+| Fix dedup (duplicate roles in digest) | [building-blocks.md](building-blocks.md#capability-ranking-filter--dedup--score) | `rank_jobs.py` `fingerprint` L571 |
 | Change the digest format / tables | [scenarios.md](scenarios.md#scenario-2--read-the-ranked-shortlist) | [.github/scripts/create_issue.py](../.github/scripts/create_issue.py) `format_body` L143 |
 | Fix issue creation / labels | [building-blocks.md](building-blocks.md#capability-publish-digest) | `create_issue.py` `create_issue` L40 |
 | Tune rate limiting / fix 429s | [patterns.md](patterns.md#rate-limiting-convention--pre-emptive-not-reactive) | `scrape_jobs.py` `_RATE_LIMIT_CONFIG` L383, `TokenBucket` L301 |

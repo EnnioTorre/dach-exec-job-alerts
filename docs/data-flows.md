@@ -45,8 +45,8 @@ sequenceDiagram
     participant GH as GitHub Issues
 
     R->>IN: load (AI file preferred)
-    R->>R: is_relevant() filter [L269] + _source_domain_ok() [L239]
-    R->>R: is_relevant_relaxed() backfill to target [L320]
+    R->>R: is_relevant() filter [L137] + _source_domain_ok() [L119]
+    R->>R: is_relevant_relaxed() backfill to target [L189]
     R->>R: fingerprint() dedup [L609]
     R->>R: score_job() = 0.35·loc + 0.35·lang + 0.30·relevance [L600]
     R->>R: sort desc, English-preference, source diversify, per-source cap
@@ -121,10 +121,11 @@ that reads/writes it:
 ### Changing the ranking formula or filters
 
 - Scoring weights / components → `score_job()` (line 600) and the three component functions
-  (`vienna_distance_score` L522, `language_score` L539, `it_management_focus_score` L559) in
+  (`vienna_distance_score` L457, `language_score` L501, `it_management_focus_score` L517) in
   [rank_jobs.py](../.github/scripts/rank_jobs.py).
-- Exclude lists → `EXCLUDE_KEYWORDS` (L92), `NON_IT_EXCLUDE_KEYWORDS` (L111),
-  `BAD_URL_PATTERNS` (L209), `NON_JOB_TITLE_PATTERNS` (L204).
+- Role rules → [position_filter.json](../.github/config/position_filter.json)
+  (`excluded_areas`, `non_it_excluded`, `in_focus_roles`, …) via `position_filter.POSITION_FILTER`.
+- URL/title guards → `BAD_URL_PATTERNS` (L68), `NON_JOB_TITLE_PATTERNS` (L56).
 - Validation thresholds → env vars in the `Validate scraper loop` step of the workflow (`TEST_MIN_*`).
 
 See [patterns.md](patterns.md) for conventions and [scenarios.md](scenarios.md) for the
