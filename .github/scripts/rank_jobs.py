@@ -204,13 +204,13 @@ def is_relevant_relaxed(job: dict) -> bool:
     if _contains_any(title, pf["non_it_excluded"]):
         return False
 
-    # Allow strong leadership or clear tech-IC terms even without full strict role+domain pair.
+    # Allow strong leadership even without the full strict role+domain pair, but
+    # never individual contributors — the shortfall fill stays leadership-only.
     has_mgmt = _contains_any(title, pf["management_terms"])
     has_domain = _contains_any(title, pf["domain_terms"])
-    has_tech_ic = _contains_any(title, pf["individual_contributor_markers"])
     cto_like = bool(re.search(r"\bcto\b", title)) or "chief technology officer" in title
 
-    if not (cto_like or (has_mgmt and has_domain) or has_tech_ic):
+    if not (cto_like or (has_mgmt and has_domain)):
         return False
 
     # Same IT-only restriction as the strict gate.

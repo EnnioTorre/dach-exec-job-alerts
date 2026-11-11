@@ -177,12 +177,21 @@ class TestIsRelevantRelaxed:
         job = {"title": "Director of Cloud", "source_url": "https://acme.io/x"}
         assert rank_jobs.is_relevant_relaxed(job) is True
 
-    def test_relaxed_accepts_individual_contributor_as_fallback(self):
-        # ICs excluded from the strict gate are still allowed in the relaxed
-        # fallback (used to fill the list when leadership roles are too few).
+    def test_relaxed_rejects_individual_contributor(self):
+        # BAC-5: the relaxed fallback is now leadership-only — ICs no longer
+        # fill the shortlist (previously they did).
         job = {"title": "Senior Software Engineer", "source_url": "https://acme.io/jobs/1",
                "company": "Acme Software GmbH"}
-        assert rank_jobs.is_relevant_relaxed(job) is True
+        assert rank_jobs.is_relevant_relaxed(job) is False
+
+    def test_relaxed_fill_adds_only_in_focus_leadership(self):
+        # BAC-5: the relaxed fallback admits IT leadership but never ICs.
+        lead = {"title": "Engineering Manager", "source_url": "https://acme.io/jobs/1",
+                "company": "Acme Software GmbH"}
+        ic = {"title": "Senior Backend Developer", "source_url": "https://acme.io/jobs/2",
+              "company": "Acme Software GmbH"}
+        assert rank_jobs.is_relevant_relaxed(lead) is True
+        assert rank_jobs.is_relevant_relaxed(ic) is False
 
     def test_relaxed_still_rejects_excluded_keyword(self):
         job = {"title": "Head of Sales Engineering", "source_url": "https://acme.io/jobs/1"}
