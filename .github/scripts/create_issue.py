@@ -69,12 +69,16 @@ def _source_perf_funnel_section(data: dict, stats: dict, jobs: list[dict],
         src = j.get("source_name", "unknown")
         top15_by_source[src] = top15_by_source.get(src, 0) + 1
 
+    # Cover every source in the scrape stats AND in the funnel — a pool/shortlist
+    # source merged in after scrape (MCP/second-pass) has no scrape-stats row but
+    # must still be counted, or the funnel totals go non-monotonic.
+    all_sources = set(stats) | set(by_source)
     active_sources = sum(1 for c in stats.values() if c > 0)
-    productive = sum(1 for s in stats if _f(s, "passed") > 0)
+    productive = sum(1 for s in all_sources if _f(s, "passed") > 0)
     dead_weight = [s for s, c in stats.items() if c > 0 and _f(s, "passed") == 0]
     total_scraped = sum(stats.values())
-    total_reached = sum(_f(s, "reached") for s in stats)
-    total_passed = sum(_f(s, "passed") for s in stats)
+    total_reached = sum(_f(s, "reached") for s in all_sources)
+    total_passed = sum(_f(s, "passed") for s in all_sources)
 
     out = [
         "## 📊 Source Performance",
@@ -107,8 +111,8 @@ def _source_perf_funnel_section(data: dict, stats: dict, jobs: list[dict],
     ]
 
     ordered = sorted(
-        stats.items(),
-        key=lambda x: (_f(x[0], "shortlisted"), _f(x[0], "passed"), _f(x[0], "reached")),
+        all_sources,
+        key=lambda s: (_f(s, "shortlisted"), _f(s, "passed"), _f(s, "reached"), stats.get(s, 0)),
         reverse=True,
     )
 
@@ -129,7 +133,8 @@ def _source_perf_funnel_section(data: dict, stats: dict, jobs: list[dict],
             "| Source | Scraped | Pool | Reached | Passed | Shortlist | Top 15 | Pass-share |",
             "|--------|--------:|-----:|--------:|-------:|----------:|-------:|-----------:|",
         ]
-    for src, scraped in ordered:
+    for src in ordered:
+        scraped = stats.get(src, 0)
         pool, reached = _f(src, "pool"), _f(src, "reached")
         passed, shortlist = _f(src, "passed"), _f(src, "shortlisted")
         top15 = top15_by_source.get(src, 0)

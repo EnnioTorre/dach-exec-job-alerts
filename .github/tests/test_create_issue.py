@@ -178,9 +178,44 @@ class TestSourcePerformanceFunnel:
 
     def test_funnel_summary_drops_after_filter_dedup_wording(self):
         body = create_issue.format_body(_funnel_data())
-        assert "reached ranking" in body
-        assert "passed the role filter" in body
         assert "after filter + dedup" not in body
+        # Pin the honest totals: reached = 4+10+0, passed = 3+5+0.
+        assert "**14** reached ranking" in body
+        assert "**8** passed the role filter" in body
+
+    def test_funnel_counts_pool_source_absent_from_scrape_stats(self):
+        # A source present only in the funnel (e.g. an MCP/second-pass merge, no
+        # scrape-stats row) must still get a table row and be counted in the
+        # totals — otherwise passed < shortlisted and the funnel is non-monotonic.
+        data = _funnel_data()
+        data["ranked_funnel"]["by_source"]["mcp_merge"] = {
+            "pool": 2, "reached": 2, "passed": 2, "shortlisted": 1,
+        }
+        body = create_issue.format_body(data)
+        row = _source_row(body, "mcp_merge")
+        # Scraped falls back to 0; its funnel counts still render.
+        assert "| 0 | 2 | 2 | 2 | 1 |" in row
+        # Totals now include it: reached 14+2, passed 8+2.
+        assert "**16** reached ranking" in body
+        assert "**10** passed the role filter" in body
+
+    def test_funnel_table_renders_ai_columns_when_present(self):
+        data = _funnel_data()
+        data["ai_enrichment"] = {
+            "source_analysis": [
+                {
+                    "source": "linkedin_at",
+                    "quality_rating": 4,
+                    "recommendation": "keep",
+                    "note": "strong roles",
+                },
+            ]
+        }
+        body = create_issue.format_body(data)
+        assert "| Source | Scraped | Pool | Reached | Passed | Shortlist | Top 15 | Pass-share | AI Quality | Recommendation |" in body
+        row = _source_row(body, "linkedin_at")
+        assert "4/5" in row
+        assert "keep — strong roles" in row
 
     def test_source_table_falls_back_without_funnel(self):
         # A pre-Story-8 artifact (no ranked_funnel) renders the legacy table.
