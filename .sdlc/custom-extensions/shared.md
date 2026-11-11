@@ -73,3 +73,25 @@ the pattern that fits:
   independently.
   *Why: `locations._geocode_address` first reused `RANK_GEOCODE_MAX`, so `=50` authorised up to 100
   Nominatim requests/run (50 rank + 50 locations) — flagged by the gap-critic on PR #120.*
+
+## Rules added 2026-11-11
+
+- **When a mid-review change turns a refactor into a behavioural redesign, split it into a new story
+  rather than pivoting in-place.** A PR scoped as behaviour-preserving that acquires a behavioural
+  change (new logic, removed fallback, changed output) should be rebuilt/split, not grown — it voids
+  the prior review and the "one reviewable thing" rule.
+  *Why: PR #140 started as a byte-identical scorer extraction, then absorbed a geolocation redesign +
+  a repo-wide fail-loud policy in-place; it was flagged for scope every pass and finally had to be
+  rebuilt with clean history (#142) and a follow-up story (S12).*
+- **When adopting a cross-cutting policy (e.g. fail-loud / no-synthetic-fallback), trace it through the
+  orchestration layers — workflow YAML, validation loop, `main()` — not just the unit that implements
+  it.** A policy enforced in one function is not delivered if an outer `continue-on-error`, retry
+  loop, or save-before-raise ordering swallows or undermines it.
+  *Why: ADR-0002 fail-loud was implemented in `scoring.py`, but the Stage-3c `continue-on-error`
+  workflow step and `test_scraper_loop.py`'s retry swallowed/amplified it end-to-end — caught by the
+  gap-critic on PR #140 pass 3 and carved into Story 12.*
+- **For a split/sequential PR, after the base PR merges to `main`, rebase the dependent branch onto
+  `main` before review/merge** (sibling to the stacked-PR retarget rule above). A branch cut before its
+  base landed carries stale sibling files, so its own code/docs premise may not hold until rebased.
+  *Why: PR #145 (pool stage) was branched before PR #144 (cap removal) merged, so `scrape_jobs.py` on
+  it still had the `[:200]` cap — contradicting the pool's "cap removed" docstring until rebased onto main.*

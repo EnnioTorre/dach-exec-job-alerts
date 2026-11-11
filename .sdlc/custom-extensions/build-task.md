@@ -53,3 +53,34 @@ Applies to `build-task` (and any fix/commit flow). Takes precedence over the ski
   *Why: `position_filter.load_position_filter` enforced non-empty on only `in_focus_roles` though the
   comment/spec said "each role-rule list"; an empty `it_signal_terms` would empty the digest and an
   empty `excluded_areas` would un-filter it — flagged by the code-reviewer + gap-critic on PR #132.*
+
+## Rules added 2026-11-11
+
+## Reconcile docs when a symbol moves or the architecture changes
+
+- **When a symbol moves between modules, grep `docs/` for the old module and any `module.py:<line>`
+  references and repoint them all in the same PR.** Line-number anchors rot on refactor; prefer symbol
+  names. Check `building-blocks.md`, `data-flows.md`, `scenarios.md`, `INDEX.md`, and any ADR that
+  names the symbol's location.
+  *Why: `score_job` and the component scorers moved from `rank_jobs.py` to `scoring.py` on PR #140/#142
+  but stale `rank_jobs.py:NNN` references lingered in building-blocks/data-flows/scenarios/INDEX and
+  were re-flagged by the gap-critic across three review passes.*
+- **When a change alters the architecture, update the affected docs (`patterns.md`, `data-flows.md`,
+  `architecture.md`) AND the relevant ADR — its content and its `Status` (mark superseded/amended/
+  accepted) — in the same PR.** A behavioural change that contradicts an ADR's Consequences or a
+  documented invariant must reconcile both the prose and the ADR status, not just add a new ADR.
+  *Why: PR #140's fail-loud rework made ADR-0001's "degrade to country constants / always ships a
+  digest" Consequences false; the header was marked superseded but the Consequences paragraph and
+  `patterns.md`/`architecture.md` stances were left stale and re-flagged on pass 3.*
+
+## Test a new stage's main() and orchestration, not just the helpers
+
+- **When adding a new stage / entry-point script, test `main()` and the orchestration — file I/O, the
+  fail-loud `try/finally`, and any index-keyed stats — not only the pure helpers.** Pure-helper tests
+  stay green while a broken `main()` / envelope / indexing path ships silently.
+  *Why: PR #145's `pool_jobs.py` had the pool-building helpers tested but `main()` / `_build_envelope` /
+  `_pool_stats` uncovered — the gap-critic flagged the orchestration + `jobs[i]` index path as unverified.*
+- **When text-asserting a workflow/config file for the ABSENCE of a key (e.g. `continue-on-error`),
+  strip comment lines first.** A comment that merely mentions the key is a false match.
+  *Why: PR #146's workflow guard test for "no continue-on-error" first tripped on a comment that named
+  it; fixed by filtering `#` lines before the assertion.*
