@@ -84,3 +84,51 @@ Applies to `build-task` (and any fix/commit flow). Takes precedence over the ski
   strip comment lines first.** A comment that merely mentions the key is a false match.
   *Why: PR #146's workflow guard test for "no continue-on-error" first tripped on a comment that named
   it; fixed by filtering `#` lines before the assertion.*
+
+## Rules added 2026-11-11 (Story 9 / PR #152)
+
+## Aggregates over multiple key-sources
+
+- **When a per-key aggregate/funnel mixes counts from two key-sources, compute totals AND rows over the
+  UNION of their key-sets — never one set's keys only.** Iterating a single key-set silently drops the
+  other set's members and desynchronises the totals, breaking a monotonic funnel (e.g. `passed <
+  shortlisted`). Fall back to a neutral value for the missing dimension (`stats.get(src, 0)`).
+  *Why: `create_issue._source_perf_funnel_section` summed `total_reached`/`total_passed` and iterated
+  rows over `source_stats` keys only, while `shortlisted`/`Top 15` counted all sources; a pool/shortlist
+  source absent from scrape stats (MCP/second-pass merge) was dropped and undercounted — a non-monotonic
+  "honest" funnel flagged by the gap-critic on PR #152.*
+
+## Legacy fallbacks behind a replacement
+
+- **When you add a replacement path with a legacy fallback, isolate the legacy path in its own
+  self-contained, clearly-labelled (`LEGACY` docstring) function — never inline it as a branch.** Keep
+  its helpers local to it so a cleanup can delete the function and its single dispatch branch in one
+  move once the replacement fully supersedes it.
+  *Why: Story 9 first inlined the legacy deduped-unique table to minimise the diff; the human asked to
+  separate it for a clean future removal — reworked into `_source_perf_legacy_section` on PR #152.*
+
+## Test every new conditional branch
+
+- **Every new conditional rendering/output branch ships with a test that exercises it.** A new `if`
+  that emits a different shape (extra columns, alternate format) is a distinct output contract and must
+  have its own fixture + assertion.
+  *Why: the `with_ai` variant of the funnel table (extra AI Quality/Recommendation columns) shipped
+  untested and could have broken undetected — flagged by the test-reviewer on PR #152.*
+
+## Rules added 2026-11-12 (Story 7 / PR #155)
+
+## Reconcile docs in the first commit
+
+- **When the plan or spec names a doc to reconcile in the same PR (a `Docs:` note), reconcile it in the
+  FIRST commit — treat it as a build checklist item, not something review will catch.** An explicitly
+  required reconciliation left out voids the team's reconcile-in-PR rule and ships stale docs.
+  *Why: Story 7's plan named `data-flows.md` for reconciliation in-PR; the first commit touched no docs,
+  and the gap-critic had to catch the omission on PR #155 — fixed only in a follow-up commit.*
+
+## Migrate every user to the new single source of truth
+
+- **When migrating a field to a new single-source-of-truth config, convert ALL of its users — including
+  literal / inline forms — not just the primary block.** A leftover literal is a silent second source of
+  truth that bypasses the new validation.
+  *Why: moving search keywords to `position_filter.json` left several LinkedIn sources with literal
+  `keywords` that skipped the new focus cross-check; they had to be converted to set refs on PR #155.*
