@@ -64,7 +64,7 @@ Grouped by pipeline capability. Line numbers are approximate anchors into the so
 | Symbol | File | Responsibility | Key signature |
 |---|---|---|---|
 | `main` | rank_jobs.py | Orchestrate filter→dedup→score→diversify→cap→write | `() -> None` |
-| `is_relevant` | rank_jobs.py | Strict relevance gate (role + IT signal + domain); confirms ambiguous LinkedIn rows via the retained body | `(job) -> bool` |
+| `is_relevant` | rank_jobs.py | Strict relevance gate (role + IT signal + domain); excludes LinkedIn Entry level / Internship rows; confirms an ambiguous LinkedIn title only with an IT industry AND a strong body term | `(job) -> bool` |
 | `is_relevant_relaxed` | rank_jobs.py | Looser gate to backfill to target count | `(job) -> bool` |
 | `_hard_reject_common` | rank_jobs.py | Shared hard-reject (bad URL/title/AI reject) | `(job) -> bool` |
 | `_has_it_signal` | rank_jobs.py | Require IT keyword in title/company | `(job) -> bool` |

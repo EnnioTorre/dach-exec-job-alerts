@@ -262,7 +262,8 @@ def is_relevant(job: dict) -> bool:
     if _has_it_signal(job):
         return True
     # Ambiguous LinkedIn leadership title: the guest card hides the body, so a
-    # real IT role looks generic. Confirm via the retained posting body (Story 6).
+    # real IT role looks generic. Confirm only with an IT industry AND a strong
+    # body term (Stories 3/7).
     return _has_linkedin_it_context(job)
 
 
