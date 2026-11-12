@@ -229,6 +229,10 @@ _LINKEDIN_LANG_CACHE: dict[str, str] = {}
 # Posting body text retained from the same guest fetch, per job id (transient;
 # read by the ranker's IT-context check, never persisted to the digest).
 _LINKEDIN_BODY_CACHE: dict[str, str] = {}
+# Job-criteria (Seniority level, Industries) parsed from the same guest fetch,
+# per job id (transient; consumed by the ranker's seniority/industry rules in
+# Story 7, never persisted to the digest).
+_LINKEDIN_CRITERIA_CACHE: dict[str, dict[str, str]] = {}
 _linkedin_lang_enrich_used = 0
 
 # Generic job-page language enrichment for German-market boards (Stepstone,
@@ -2064,6 +2068,25 @@ def parse_jobs_ch(html: str, source_name: str) -> list[dict]:
     return jobs
 
 
+def _parse_linkedin_criteria(soup: BeautifulSoup) -> dict[str, str]:
+    """Extract Seniority level and Industries from the guest posting page's
+    ``description__job-criteria`` block. Defensive: a missing block or item
+    leaves the field empty and never raises (parsers-never-raise)."""
+    crit = {"seniority": "", "industries": ""}
+    for item in soup.find_all(class_=lambda c: c and "description__job-criteria-item" in c):
+        header = item.find(class_=lambda c: c and "description__job-criteria-subheader" in c)
+        value = item.find(class_=lambda c: c and "description__job-criteria-text" in c)
+        if not header or not value:
+            continue
+        label = header.get_text(strip=True).lower()
+        text = value.get_text(strip=True)
+        if "seniority" in label:
+            crit["seniority"] = text
+        elif "industr" in label:
+            crit["industries"] = text
+    return crit
+
+
 def _fetch_linkedin_job_language(job_id: str) -> str | None:
     """
     Fetch the public LinkedIn guest job-posting description and detect its
@@ -2079,6 +2102,7 @@ def _fetch_linkedin_job_language(job_id: str) -> str | None:
     if job_id in _LINKEDIN_LANG_CACHE:
         return _LINKEDIN_LANG_CACHE[job_id] or None
     _LINKEDIN_BODY_CACHE.setdefault(job_id, "")
+    _LINKEDIN_CRITERIA_CACHE.setdefault(job_id, {"seniority": "", "industries": ""})
 
     global _linkedin_lang_enrich_used
     cap = int(os.getenv("SCRAPER_LINKEDIN_LANG_ENRICH_MAX", "60"))
@@ -2091,9 +2115,11 @@ def _fetch_linkedin_job_language(job_id: str) -> str | None:
     if not html:
         _LINKEDIN_LANG_CACHE[job_id] = ""  # remember the failed attempt
         _LINKEDIN_BODY_CACHE[job_id] = ""
+        _LINKEDIN_CRITERIA_CACHE[job_id] = {"seniority": "", "industries": ""}
         return None
 
     soup = BeautifulSoup(html, "html.parser")
+    _LINKEDIN_CRITERIA_CACHE[job_id] = _parse_linkedin_criteria(soup)
     desc_el = soup.find(
         class_=lambda c: c and ("show-more-less-html__markup" in c or "description__text" in c)
     )
@@ -2177,6 +2203,9 @@ def parse_linkedin_guest_api(html: str, source_name: str) -> list[dict]:
             "language_hint": lang_hint,
             # Transient: retained posting body for the ranker's IT-context check.
             "body_text": _LINKEDIN_BODY_CACHE.get(job_id, ""),
+            # Transient: LinkedIn job-criteria for Story 7's seniority/industry rules.
+            "seniority": _LINKEDIN_CRITERIA_CACHE.get(job_id, {}).get("seniority", ""),
+            "industries": _LINKEDIN_CRITERIA_CACHE.get(job_id, {}).get("industries", ""),
         })
 
     return jobs
