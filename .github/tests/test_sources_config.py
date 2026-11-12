@@ -178,6 +178,28 @@ def test_google_query_derived_from_config(tmp_path):
     assert "%22CTO%22+OR+%22VP+Engineering%22" in sources[0]["url"]
 
 
+def test_google_literal_query_builds_without_roles_slot(tmp_path):
+    # Back-compat: a google_proxy with a literal query (no {roles}) builds as-is,
+    # untouched by the keyword-set templating.
+    cfg = {"sources": [{"name": "g", "type": "google_proxy", "region": "AT",
+                       "query": "site:example.com CTO Austria"}]}
+    p = tmp_path / "sources.json"
+    p.write_text(json.dumps(cfg), encoding="utf-8")
+    sources, _ = S._load_source_config(str(p), keyword_sets={})
+    expected = S._GOOGLE_SEARCH + urlencode({"q": "site:example.com CTO Austria", "num": "20"})
+    assert sources[0]["url"] == expected
+
+
+def test_google_roles_slot_rejects_unknown_keyword_set(tmp_path):
+    # The google_proxy {roles} branch must raise on a missing set, like linkedin.
+    cfg = {"sources": [{"name": "g", "type": "google_proxy", "region": "AT",
+                       "keyword_set": "nope", "query": "site:example.com {roles}"}]}
+    p = tmp_path / "sources.json"
+    p.write_text(json.dumps(cfg), encoding="utf-8")
+    with pytest.raises(ValueError, match="unknown keyword_set"):
+        S._load_source_config(str(p), keyword_sets={})
+
+
 def test_search_queries_target_in_focus_roles():
     # Every built LinkedIn/Google search URL carries an in-focus role term and
     # no excluded-area term (the config cross-check, observed end-to-end).
