@@ -395,6 +395,24 @@ class TestTieredBodyEvidence:
         job = {"title": "IoT Technology Director", "application_url": "https://acme.com/jobs/123"}
         assert rank_jobs.is_relevant(job) is True
 
+    def test_weak_terms_are_subset_of_it_signal(self):
+        # _strong_it_terms() subtracts weak_body_terms from it_signal_terms by exact
+        # (lowercased) string; a weak term absent from it_signal_terms would silently
+        # stay strong and still confirm. Guard the invariant the subtraction relies on.
+        pf = position_filter.POSITION_FILTER
+        weak = {t.lower() for t in pf["weak_body_terms"]}
+        it_signal = {t.lower() for t in pf["it_signal_terms"]}
+        assert weak <= it_signal, sorted(weak - it_signal)
+
+    def test_multiword_weak_body_does_not_confirm(self):
+        # BAC-5: the multi-word weak terms (tech lead / machine learning /
+        # artificial intelligence) are the most fragile to the exact-string
+        # subtraction; a body of only these does not confirm the ambiguous row.
+        row = self._ambiguous_linkedin_row(
+            body_text="Our tech lead focuses on machine learning and artificial intelligence research."
+        )
+        assert rank_jobs.is_relevant(row) is False
+
 
 # ---------------------------------------------------------------------------
 # Per-source / per-family funnel counts in jobs_ranked.json (Story 8b)
