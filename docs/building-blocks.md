@@ -68,11 +68,15 @@ Grouped by pipeline capability. Line numbers are approximate anchors into the so
 | `is_relevant_relaxed` | rank_jobs.py | Looser gate to backfill to target count | `(job) -> bool` |
 | `_hard_reject_common` | rank_jobs.py | Shared hard-reject (bad URL/title/AI reject) | `(job) -> bool` |
 | `_has_it_signal` | rank_jobs.py | Require IT keyword in title/company | `(job) -> bool` |
-| `_has_linkedin_it_context` | rank_jobs.py | Confirm an ambiguous LinkedIn row when its retained `body_text` (Story 6) carries an IT signal | `(job) -> bool` |
+| `_title_excluded` | rank_jobs.py | Exclude junior / commercial / off-focus titles (shared by both gates) | `(title) -> bool` |
+| `_strong_it_terms` | rank_jobs.py | Strong IT terms = `it_signal_terms` − `weak_body_terms`; a weak word alone never confirms a body | `() -> list[str]` |
+| `_has_linkedin_it_context` | rank_jobs.py | Confirm an ambiguous LinkedIn row when its retained `body_text` (Story 6) carries a **strong** IT term (Story 3) | `(job) -> bool` |
 | `_source_domain_ok` | rank_jobs.py | URL must match source platform domain | `(job) -> bool` |
 | `fingerprint` | rank_jobs.py | Dedup key `title\|company` (normalized) | `(job) -> str` |
 | `_funnel_by` / `ranked_funnel` | rank_jobs.py | Per-source & per-family funnel counts (pool → reached → passed → shortlisted) written to `jobs_ranked.json` for the honest digest | `(key_fn, pool, reached, passed, shortlisted) -> dict` |
 | `excluded_areas` / `non_it_excluded` | [position_filter.json](../.github/config/position_filter.json) | Hard exclude lists (sales, industrial, mechanical…), loaded via `position_filter.POSITION_FILTER` | config lists |
+| `junior_markers` / `commercial_terms` / `off_focus_roles` | [position_filter.json](../.github/config/position_filter.json) | Title-exclusion lists for the shared `_title_excluded` gate (junior, commercial, off-focus Data-AI / IT-security) | config lists |
+| `weak_body_terms` / `hardware_body_terms` / `it_industries` / `excluded_seniority` | [position_filter.json](../.github/config/position_filter.json) | Classification lists: weak vs strong body split (Story 3), hardware-dominance (Story 4), LinkedIn industry/seniority confirmation (Story 7) | config lists |
 | `BAD_URL_PATTERNS` / `NON_JOB_TITLE_PATTERNS` | rank_jobs.py | Reject listing/search pages & non-job titles | const |
 
 ## Capability: Scoring (shared) & geolocation

@@ -92,16 +92,26 @@ def _title_excluded(title: str) -> bool:
     )
 
 
+def _strong_it_terms() -> list[str]:
+    """Strong IT terms = it_signal_terms minus weak_body_terms. A strong term in a
+    posting body confirms an ambiguous LinkedIn title; weak terms (technology,
+    digital, data, cto, it, security, …) do not confirm on their own (Story 3).
+    Computed per call so a monkeypatched config is honoured in tests."""
+    pf = position_filter.POSITION_FILTER
+    weak = {t.lower() for t in pf["weak_body_terms"]}
+    return [t for t in pf["it_signal_terms"] if t.lower() not in weak]
+
+
 def _has_linkedin_it_context(job: dict) -> bool:
     """Confirm an ambiguous-title LinkedIn row via its retained posting body
-    (Story 6): True only when it is a LinkedIn row whose body carries an IT signal."""
+    (Story 6): True only when it is a LinkedIn row whose body carries a STRONG IT
+    signal — a generic/weak word alone no longer confirms (Story 3)."""
     if _source_family(job) != "linkedin":
         return False
     body = (job.get("body_text") or "").lower()
     if not body:
         return False
-    it_signal = position_filter.POSITION_FILTER["it_signal_terms"]
-    return _contains_any(body, it_signal)
+    return _contains_any(body, _strong_it_terms())
 
 
 def _hard_reject_common(title: str, url: str, ai_rel: str, ai_url_quality: str) -> bool:
