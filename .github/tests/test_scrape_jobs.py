@@ -803,3 +803,58 @@ class TestLinkedinBodyRetention:
         assert jobs[1]["body_text"] == ""           # past the cap → no body
 
 
+# ---------------------------------------------------------------------------
+# LinkedIn job-criteria capture (Story 5) — Seniority level and Industries are
+# parsed from the same guest fetch and retained as transient row fields.
+# ---------------------------------------------------------------------------
+
+def _guest_criteria(seniority: str, industries: str) -> str:
+    return (
+        '<ul class="description__job-criteria-list">'
+        '<li class="description__job-criteria-item">'
+        '<h3 class="description__job-criteria-subheader">Seniority level</h3>'
+        f'<span class="description__job-criteria-text description__job-criteria-text--criteria">{seniority}</span></li>'
+        '<li class="description__job-criteria-item">'
+        '<h3 class="description__job-criteria-subheader">Industries</h3>'
+        f'<span class="description__job-criteria-text description__job-criteria-text--criteria">{industries}</span></li>'
+        '</ul>'
+    )
+
+
+class TestLinkedinCriteriaCapture:
+    @pytest.fixture(autouse=True)
+    def _reset(self, monkeypatch):
+        scrape_jobs._LINKEDIN_LANG_CACHE.clear()
+        scrape_jobs._LINKEDIN_BODY_CACHE.clear()
+        scrape_jobs._LINKEDIN_CRITERIA_CACHE.clear()
+        monkeypatch.setattr(scrape_jobs, "_linkedin_lang_enrich_used", 0)
+        monkeypatch.setenv("SCRAPER_LINKEDIN_LANG_ENRICH", "true")
+
+    def test_linkedin_criteria_seniority_and_industries_captured(self, monkeypatch):
+        # The guest page carries a job-criteria block → the row retains both the
+        # body and the parsed seniority/industries from the same fetch.
+        page = _guest_body("Lead our cloud platform team.") + _guest_criteria(
+            "Mid-Senior level", "Software Development"
+        )
+        monkeypatch.setattr(scrape_jobs, "fetch", lambda url, retries=1: page)
+        html = _guest_card("12345", "Head of Engineering")
+        jobs = scrape_jobs.parse_linkedin_guest_api(html, "linkedin_at")
+        assert len(jobs) == 1
+        assert jobs[0]["seniority"] == "Mid-Senior level"
+        assert jobs[0]["industries"] == "Software Development"
+        assert jobs[0]["body_text"] == "Lead our cloud platform team."
+
+    def test_missing_criteria_block_leaves_fields_empty(self, monkeypatch):
+        # A page with no criteria block yields empty seniority/industries and
+        # does not raise (parsers-never-raise); the body is still captured.
+        monkeypatch.setattr(
+            scrape_jobs, "fetch", lambda url, retries=1: _guest_body("Own the backend platform.")
+        )
+        html = _guest_card("67890", "VP Engineering")
+        jobs = scrape_jobs.parse_linkedin_guest_api(html, "linkedin_at")
+        assert len(jobs) == 1
+        assert jobs[0]["seniority"] == ""
+        assert jobs[0]["industries"] == ""
+        assert jobs[0]["body_text"] == "Own the backend platform."
+
+
