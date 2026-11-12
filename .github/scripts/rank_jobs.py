@@ -79,6 +79,19 @@ def _has_it_signal(job: dict) -> bool:
     return _contains_any(title, it_signal) or _contains_any(company, it_signal)
 
 
+def _title_excluded(title: str) -> bool:
+    """True when the title carries a junior, commercial, or off-focus (Data/AI,
+    IT-security) term. Shared by both relevance gates and matched as whole words,
+    so a commercial term outweighs a title IT signal and a Data phrase in a
+    software title does not hit `data science`/`head of data` (Story 2)."""
+    pf = position_filter.POSITION_FILTER
+    return (
+        _contains_any(title, pf["junior_markers"])
+        or _contains_any(title, pf["commercial_terms"])
+        or _contains_any(title, pf["off_focus_roles"])
+    )
+
+
 def _has_linkedin_it_context(job: dict) -> bool:
     """Confirm an ambiguous-title LinkedIn row via its retained posting body
     (Story 6): True only when it is a LinkedIn row whose body carries an IT signal."""
@@ -146,6 +159,11 @@ def is_relevant(job: dict) -> bool:
     if _contains_any(title, pf["non_it_excluded"]):
         return False
 
+    # Junior / commercial / off-focus titles are excluded before the IT-signal
+    # step, so a commercial term outweighs a title `software`/`product` (Story 2).
+    if _title_excluded(title):
+        return False
+
     cto_like = bool(re.search(r"\bcto\b", title)) or "chief technology officer" in title
     has_role = any(kw in title for kw in pf["in_focus_roles"])
     has_domain = any(kw in title for kw in pf["domain_terms"])
@@ -199,6 +217,9 @@ def is_relevant_relaxed(job: dict) -> bool:
     if any(kw in title for kw in pf["excluded_areas"]):
         return False
     if _contains_any(title, pf["non_it_excluded"]):
+        return False
+    # The shortfall fill applies the same junior/commercial/off-focus exclusions.
+    if _title_excluded(title):
         return False
 
     # Allow strong leadership even without the full strict role+domain pair, but
