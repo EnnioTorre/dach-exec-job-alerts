@@ -31,6 +31,8 @@ import os
 import subprocess
 from pathlib import Path
 
+from rank_jobs import EXIT_GEOCODE_UNAVAILABLE
+
 ROOT = Path(__file__).resolve().parents[2]
 RAW = Path("/tmp/jobs/jobs_raw.json")
 RANKED = Path("/tmp/jobs/jobs_ranked.json")
@@ -174,6 +176,11 @@ def main() -> int:
         print(out)
         if err.strip():
             print(err)
+        if rc == EXIT_GEOCODE_UNAVAILABLE:
+            # Hard geolocation outage: do not retry (a retry would re-hammer a
+            # failing Nominatim) — fail the workflow so no stale digest ships.
+            print(f"rank hit a geolocation outage (exit {rc}); aborting without retry")
+            return rc
         if rc != 0:
             last_reason = f"rank step failed with exit {rc}"
             print(last_reason)

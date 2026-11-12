@@ -9,7 +9,11 @@ except the shared [github_models.py](../.github/scripts/github_models.py) helper
 file and write another (`jobs_raw.json` → `jobs_raw_ai.json` → `jobs_ranked.json` →
 `jobs_enriched.json`). The deterministic core (scrape → rank → publish) is wrapped by *optional*
 AI stages marked `continue-on-error: true` in the workflow, so the pipeline always produces a
-digest even when every AI call fails. Parsers follow a **"never raise"** contract — on any
+digest even when every AI call fails — the one exception is a hard **geolocation outage**, which
+fails the run loud (both rank steps, including the authoritative final re-rank, run without
+`continue-on-error`) rather than shipping a digest scored against fabricated/stale coordinates
+([ADR-0002](adrs/ADR-0002-no-synthetic-fallback-external-resources.md)). Parsers follow a
+**"never raise"** contract — on any
 fetch/parse error they return an empty list and log to stdout, so one broken source never breaks
 the run.
 

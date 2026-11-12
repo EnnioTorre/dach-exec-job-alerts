@@ -235,12 +235,12 @@ jobs:
 
       # ------------------------------------------------------------------
       # Stage 3c: Re-rank after potential second pass
-      #   Safe to run even if second pass was a no-op — just rewrites the
-      #   same ranked output.  continue-on-error: true.
+      #   The authoritative final rank (its jobs_ranked.json is what gets
+      #   published). NOT continue-on-error: a geocoding outage here fails the
+      #   run rather than publishing the Stage-2 digest (ADR-0002 fail-loud).
       # ------------------------------------------------------------------
       - name: Re-rank after second pass
         run: python .github/scripts/rank_jobs.py
-        continue-on-error: true
         env:
           RANK_GEOCODE_MAX: "60"
           RANK_GEOCODE_USER_AGENT: "dach-exec-job-alerts/1.0 (+https://github.com/${{ github.repository }})"
