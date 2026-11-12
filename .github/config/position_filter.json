@@ -170,10 +170,10 @@
   ],
   "search_keyword_sets": {
     "leader": "Engineering Manager OR Head of Engineering OR CTO OR VP Engineering OR Director of Engineering OR Head of Software",
-    "mgmt_broad": "Engineering Manager OR Program Manager OR Technical Program Manager OR Engineering Lead OR Head of Engineering OR Director of Engineering",
-    "transformation": "Head of Digital Transformation OR Transformation Manager OR Innovation Manager OR Head of Innovation OR Head of Digital OR VP Technology",
+    "mgmt_broad": "Engineering Manager OR Engineering Lead OR Head of Engineering OR Director of Engineering OR Head of Platform Engineering",
+    "transformation": "CTO OR Chief Technology Officer OR Head of Digitalization OR VP Engineering OR Head of Data",
     "city": "Engineering Manager OR Head of Engineering OR CTO OR VP Engineering OR Engineering Lead OR Director of Engineering",
-    "cto_vp": "CTO OR Chief Technology Officer OR VP Engineering OR VP Technology OR Chief Digital Officer",
-    "director": "Director of Engineering OR Director of Technology OR Engineering Director OR Head of Technology"
+    "cto_vp": "CTO OR Chief Technology Officer OR VP Engineering OR VP of Engineering OR Head of Engineering",
+    "director": "Director of Engineering OR Director of Platform Engineering OR Director of Cloud Engineering OR Technical Director"
   }
 }

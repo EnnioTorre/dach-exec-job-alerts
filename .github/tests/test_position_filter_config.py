@@ -81,3 +81,19 @@ def test_invalid_config_empty_role_list_raises(tmp_path):
     p.write_text(json.dumps(bad), encoding="utf-8")
     with pytest.raises(ValueError, match="must be a non-empty list"):
         P.load_position_filter(str(p))
+
+
+def test_cross_check_rejects_off_focus_search_source(tmp_path):
+    # A search set aimed at an excluded area fails the focus cross-check ...
+    bad = _valid_config()
+    bad["search_keyword_sets"] = {"off": "Head of Sales OR CTO"}
+    p = tmp_path / "position_filter.json"
+    p.write_text(json.dumps(bad), encoding="utf-8")
+    with pytest.raises(ValueError, match="targets excluded area"):
+        P.load_position_filter(str(p))
+
+    # ... and a set with no in-focus role also fails.
+    bad["search_keyword_sets"] = {"off": "Program Manager OR Innovation Lead"}
+    p.write_text(json.dumps(bad), encoding="utf-8")
+    with pytest.raises(ValueError, match="no in-focus role"):
+        P.load_position_filter(str(p))
