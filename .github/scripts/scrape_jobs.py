@@ -234,6 +234,9 @@ _LINKEDIN_BODY_CACHE: dict[str, str] = {}
 # Story 7, never persisted to the digest).
 _LINKEDIN_CRITERIA_CACHE: dict[str, dict[str, str]] = {}
 _linkedin_lang_enrich_used = 0
+# Separate per-run budget for the German-titled posting fetch (Story 6), so it
+# does not consume the language-enrichment budget (shared.md: own knob per stage).
+_linkedin_classify_used = 0
 
 # Generic job-page language enrichment for German-market boards (Stepstone,
 # karriere.at). Their listing cards only expose a title; many roles carry an
@@ -2087,15 +2090,18 @@ def _parse_linkedin_criteria(soup: BeautifulSoup) -> dict[str, str]:
     return crit
 
 
-def _fetch_linkedin_job_language(job_id: str) -> str | None:
+def _fetch_linkedin_job_language(job_id: str, budget: str = "lang") -> str | None:
     """
     Fetch the public LinkedIn guest job-posting description and detect its
     language. Returns 'de'/'en', or None if unavailable.
 
     The guest endpoint /jobs-guest/jobs/api/jobPosting/<id> serves the full
     description HTML without authentication. Results are cached per job id and
-    the number of network fetches is capped per run (env
-    SCRAPER_LINKEDIN_LANG_ENRICH_MAX, default 60) to bound runtime and 429 risk.
+    the number of network fetches is capped per run to bound runtime and 429
+    risk. ``budget`` selects the per-run cap: ``"lang"`` (default) uses
+    SCRAPER_LINKEDIN_LANG_ENRICH_MAX; ``"classify"`` uses SCRAPER_LINKEDIN_CLASSIFY_MAX
+    (falling back to the lang cap) with its own counter, so the German-titled
+    posting fetch (Story 6) does not consume the language-enrichment budget.
     """
     if not job_id:
         return None
@@ -2104,11 +2110,20 @@ def _fetch_linkedin_job_language(job_id: str) -> str | None:
     _LINKEDIN_BODY_CACHE.setdefault(job_id, "")
     _LINKEDIN_CRITERIA_CACHE.setdefault(job_id, {"seniority": "", "industries": ""})
 
-    global _linkedin_lang_enrich_used
-    cap = int(os.getenv("SCRAPER_LINKEDIN_LANG_ENRICH_MAX", "60"))
-    if _linkedin_lang_enrich_used >= cap:
-        return None
-    _linkedin_lang_enrich_used += 1
+    global _linkedin_lang_enrich_used, _linkedin_classify_used
+    if budget == "classify":
+        cap = int(os.getenv(
+            "SCRAPER_LINKEDIN_CLASSIFY_MAX",
+            os.getenv("SCRAPER_LINKEDIN_LANG_ENRICH_MAX", "60"),
+        ))
+        if _linkedin_classify_used >= cap:
+            return None
+        _linkedin_classify_used += 1
+    else:
+        cap = int(os.getenv("SCRAPER_LINKEDIN_LANG_ENRICH_MAX", "60"))
+        if _linkedin_lang_enrich_used >= cap:
+            return None
+        _linkedin_lang_enrich_used += 1
 
     url = f"https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{job_id}"
     html = fetch(url, retries=1)
@@ -2186,10 +2201,16 @@ def parse_linkedin_guest_api(html: str, source_name: str) -> list[dict]:
         # marker in the title still counts. Left unknown ('') when enrichment is
         # off or unavailable — the AI pre-rank step fills it.
         lang_hint = _audience_marker_lang(title) or ""
-        if not lang_hint and os.getenv(
+        enrich_on = os.getenv(
             "SCRAPER_LINKEDIN_LANG_ENRICH", "true"
-        ).lower() in {"1", "true", "yes"}:
-            lang_hint = _fetch_linkedin_job_language(job_id) or ""
+        ).lower() in {"1", "true", "yes"}
+        if enrich_on:
+            if not lang_hint:
+                lang_hint = _fetch_linkedin_job_language(job_id) or ""
+            else:
+                # German-titled: still fetch body + criteria (Story 6) under the
+                # classify budget; keep the structural-marker language.
+                _fetch_linkedin_job_language(job_id, budget="classify")
 
         jobs.append({
             "title": title,

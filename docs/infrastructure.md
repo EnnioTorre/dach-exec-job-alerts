@@ -75,6 +75,9 @@ Credentials for local provider runs go in `.env.google-providers` (git-ignored; 
 | `SCRAPER_SERPAPI_KEY` / `SCRAPER_ZENSERP_KEY` | — | Managed provider keys |
 | `SCRAPER_MIN_PER_SOURCE` | `2` | Min jobs/source before Arbeitnow backfill |
 | `SCRAPER_ENRICH_MAX` | `2` | Max career-page enrichments for Google results |
+| `SCRAPER_LINKEDIN_LANG_ENRICH` | `true` | Master on/off for LinkedIn guest-posting enrichment (language + body + criteria) |
+| `SCRAPER_LINKEDIN_LANG_ENRICH_MAX` | `60` | Per-run cap on language-enrichment fetches (English-titled rows) |
+| `SCRAPER_LINKEDIN_CLASSIFY_MAX` | `SCRAPER_LINKEDIN_LANG_ENRICH_MAX` (else `60`) | Per-run cap on German-titled posting fetches (own counter — does not consume the language budget) |
 | `RANK_TARGET_COUNT` | `20` | Target ranked pool size |
 | `RANK_LANGUAGE_ONLY` | — | Optional language gate (`en`/`de`) |
 | `TEST_MIN_RAW` / `TEST_MIN_RANKED` / `TEST_MIN_ACTIVE_SOURCES` / `TEST_ATTEMPTS` | 10 / 10 / 2 / 3 (CI) | Validation-loop thresholds |
