@@ -152,6 +152,19 @@ def test_term_in_both_in_focus_and_off_focus_raises(tmp_path):
         P.load_position_filter(str(p))
 
 
+def test_off_focus_term_in_search_set_raises(tmp_path):
+    # off_focus_roles also counts as excluded for the search-set focus check: a
+    # search set that targets an off-focus role (Data/AI, security) is rejected,
+    # so an excluded term can never be left in a search query (BAC-9).
+    bad = _valid_config()
+    bad["off_focus_roles"] = ["head of data"]
+    bad["search_keyword_sets"] = {"off": "Head of Data OR CTO"}
+    p = tmp_path / "position_filter.json"
+    p.write_text(json.dumps(bad), encoding="utf-8")
+    with pytest.raises(ValueError, match="targets excluded area"):
+        P.load_position_filter(str(p))
+
+
 def test_head_of_data_removed_from_in_focus_and_transformation_set():
     # The shipped config must not list "head of data" as in-focus nor leave it in
     # the transformation search set — off-focus Data leadership stays excluded.
