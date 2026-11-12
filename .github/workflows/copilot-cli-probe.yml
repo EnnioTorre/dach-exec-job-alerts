@@ -1,0 +1,141 @@
+name: copilot-cli-probe
+
+# Manual-only spike (ai-enrichment-reliability Story 1): measures Copilot CLI exit/error
+# signals, JSON reliability, model and usage. No pipeline, issues or job data touched.
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "Model id for --model (empty = CLI default)"
+        default: ""
+      node_version:
+        description: "Node.js version for the CLI"
+        default: "20"
+      repeats:
+        description: "Pre-rank JSON runs (clamped to 1-5)"
+        default: "3"
+
+permissions:
+  contents: read
+  copilot-requests: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PROBE_DIR: /tmp/copilot-probe
+      PROBE_MODEL: ${{ inputs.model }}
+      PROBE_REPEATS: ${{ inputs.repeats }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ inputs.node_version }}
+      - name: Install Copilot CLI (pinned)
+        run: |
+          npm install -g @github/copilot@1.0.109
+          mkdir -p "$PROBE_DIR"
+          { echo "node: $(node --version)"; echo "copilot: $(copilot --version 2>&1 | head -n 1)"; } | tee "$PROBE_DIR/versions.txt"
+
+      # Real stage prompt builders; the fixture holds public job-posting fields only.
+      - name: Build probe prompts and helper
+        run: |
+          python - <<'PY'
+          import json, os, sys
+          sys.path.insert(0, ".github/scripts")
+          import ai_enrich
+          import ai_pre_rank_enrich as ape
+          d = json.load(open(".github/tests/fixtures/copilot_probe_input.json", encoding="utf-8"))
+          out = os.environ["PROBE_DIR"]
+          lines = [ape._job_to_line(f"j{i}", r) for i, r in enumerate(d["pool_rows"])]
+          prompts = {
+              "prerank_prompt.txt": ape.build_prompt(d["date"], lines),
+              "enrich_prompt.txt": ai_enrich.build_prompt(d["ranked"]),
+              "ping_prompt.txt": "Reply with the single word OK.",
+          }
+          for name, text in prompts.items():
+              open(os.path.join(out, name), "w", encoding="utf-8").write(text)
+          PY
+          cat > "$PROBE_DIR/run_probe.sh" <<'SH'
+          # run_probe NAME PROMPT_FILE [extra args]: never aborts on a non-zero exit.
+          run_probe() {
+            local name="$1" prompt_file="$2"; shift 2
+            local model_args=() start rc
+            if [ -n "${PROBE_MODEL:-}" ]; then model_args=(--model="$PROBE_MODEL"); fi
+            start=$(date +%s)
+            set +e
+            copilot -p "$(cat "$prompt_file")" "${model_args[@]}" "$@" \
+              --deny-tool='shell,write,read,url,memory' --no-ask-user --no-auto-update \
+              > "$PROBE_DIR/$name.out" 2> "$PROBE_DIR/$name.err"
+            rc=$?
+            set -e
+            echo "$rc" > "$PROBE_DIR/$name.rc"
+            echo "$(( $(date +%s) - start ))" > "$PROBE_DIR/$name.secs"
+            echo "$name exit=$rc"
+          }
+          SH
+
+      # P1 JSON reliability, P2 usage stats (no -s), P3 enrichment JSON, P4 invalid model.
+      - name: P1-P4 probes (workflow token)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          source "$PROBE_DIR/run_probe.sh"
+          n="${PROBE_REPEATS:-3}"
+          case "$n" in ''|*[!0-9]*) n=3 ;; esac
+          [ "$n" -lt 1 ] && n=1; [ "$n" -gt 5 ] && n=5
+          for i in $(seq 1 "$n"); do
+            run_probe "p1_prerank_json_$i" "$PROBE_DIR/prerank_prompt.txt" -s --output-format json
+          done
+          run_probe p2_prerank_stats "$PROBE_DIR/prerank_prompt.txt"
+          run_probe p3_enrich_json "$PROBE_DIR/enrich_prompt.txt" -s --output-format json
+          PROBE_MODEL=invalid-model-probe run_probe p4_invalid_model "$PROBE_DIR/ping_prompt.txt" -s
+      - name: P5 no token (unauthenticated signal)
+        env:
+          GITHUB_TOKEN: ""
+          GH_TOKEN: ""
+        run: |
+          source "$PROBE_DIR/run_probe.sh"
+          run_probe p5_no_token "$PROBE_DIR/ping_prompt.txt" -s
+      - name: P6 PAT fallback (skipped without the secret)
+        env:
+          GITHUB_TOKEN: ""
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+        run: |
+          if [ -z "${COPILOT_GITHUB_TOKEN:-}" ]; then
+            echo "P6 skipped: COPILOT_GITHUB_TOKEN secret not configured" | tee "$PROBE_DIR/p6_skipped.txt"
+            exit 0
+          fi
+          source "$PROBE_DIR/run_probe.sh"
+          run_probe p6_pat "$PROBE_DIR/ping_prompt.txt" -s
+      - name: Summarise probe results
+        if: always()
+        run: |
+          {
+            printf '## Copilot CLI probe\n\n'
+            sed 's/^/    /' "$PROBE_DIR/versions.txt" 2>/dev/null || true
+            printf '\n| Probe | Exit | Secs | Stdout bytes | Stderr (first 160 chars) | Stdout (first 200 chars) |\n|---|---|---|---|---|---|\n'
+            for rc in "$PROBE_DIR"/*.rc; do
+              [ -e "$rc" ] || continue
+              n=$(basename "$rc" .rc)
+              err=$(head -c 160 "$PROBE_DIR/$n.err" | tr '\n|' '  ')
+              out=$(head -c 200 "$PROBE_DIR/$n.out" | tr '\n|' '  ')
+              printf '| %s | %s | %s | %s | %s | %s |\n' "$n" "$(cat "$rc")" \
+                "$(cat "$PROBE_DIR/$n.secs")" "$(wc -c < "$PROBE_DIR/$n.out")" "$err" "$out"
+            done
+          } | tee "$PROBE_DIR/summary.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload probe results
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: copilot-probe-results
+          path: /tmp/copilot-probe
+          retention-days: 14
