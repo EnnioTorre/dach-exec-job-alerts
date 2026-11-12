@@ -208,6 +208,69 @@ class TestIsRelevantRelaxed:
         assert rank_jobs.is_relevant_relaxed(job) is False
 
 
+class TestTitleExclusionGate:
+    """it-role-classification Story 2 (BAC-1/2/11/13/14/15/16/17): the shared
+    title gate excludes junior / commercial / off-focus titles in both the strict
+    filter and the shortfall fill, while leaving genuine IT leadership eligible."""
+
+    def test_junior_title_excluded(self):
+        # BAC-1: junior titles are not relevant even with an IT signal.
+        for title in ("(Junior) Deal Strategy Manager Insurance Software (m/w/d)",
+                      "Junior IT Project Manager"):
+            job = {"title": title, "application_url": "https://acme.com/jobs/123",
+                   "company": "Acme Software GmbH"}
+            assert rank_jobs.is_relevant(job) is False, title
+
+    def test_commercial_title_excluded_despite_software(self):
+        # BAC-2: commercial titles are excluded even with software/cloud/saas.
+        for title in ("Business Development Manager Software", "Account Manager SaaS",
+                      "Pre-Sales Manager Cloud"):
+            job = {"title": title, "application_url": "https://acme.com/jobs/123",
+                   "company": "Acme Software GmbH"}
+            assert rank_jobs.is_relevant(job) is False, title
+
+    def test_commercial_term_outweighs_software_or_product(self):
+        # BAC-14: a commercial term wins over a title software/product signal.
+        for title in ("Product Marketing Manager Software", "Software Strategy Manager"):
+            job = {"title": title, "application_url": "https://acme.com/jobs/123",
+                   "company": "Acme Software GmbH"}
+            assert rank_jobs.is_relevant(job) is False, title
+
+    def test_shortfall_fill_applies_same_exclusions(self):
+        # BAC-11: the relaxed shortfall fill applies the identical gate.
+        for title in ("Junior IT Project Manager", "Business Development Manager Software",
+                      "Head of Data & AI"):
+            job = {"title": title, "source_url": "https://acme.io/jobs/1",
+                   "company": "Acme Software GmbH"}
+            assert rank_jobs.is_relevant_relaxed(job) is False, title
+
+    def test_off_focus_data_ai_security_excluded(self):
+        # BAC-16: off-focus Data/AI and IT-security leadership is excluded.
+        for title in ("IT Security & Compliance Manager", "Head of Data & AI", "CISO"):
+            job = {"title": title, "application_url": "https://acme.com/jobs/123",
+                   "company": "Acme Software GmbH"}
+            assert rank_jobs.is_relevant(job) is False, title
+
+    def test_associate_title_not_junior(self):
+        # BAC-13: "associate" is not a junior marker; with IT context it stays eligible.
+        job = {"title": "Associate Director Product", "application_url": "https://acme.com/jobs/123",
+               "company": "Acme Software GmbH"}
+        assert rank_jobs.is_relevant(job) is True
+
+    def test_head_of_product_stays_eligible(self):
+        # BAC-15: "product" is not a commercial term; "Head of Product" stays eligible.
+        job = {"title": "Head of Product", "application_url": "https://acme.com/jobs/123",
+               "company": "Acme Software GmbH"}
+        assert rank_jobs.is_relevant(job) is True
+
+    def test_data_plane_software_title_not_excluded(self):
+        # BAC-17: whole-word/phrase matching — "Data Plane" does not hit the
+        # "data science"/"head of data" off-focus phrases; a software title stays eligible.
+        job = {"title": "Software Engineering Manager - Data Plane",
+               "application_url": "https://acme.com/jobs/123"}
+        assert rank_jobs.is_relevant(job) is True
+
+
 # ---------------------------------------------------------------------------
 # _has_it_signal
 # ---------------------------------------------------------------------------
