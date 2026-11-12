@@ -25,6 +25,7 @@ import xml.etree.ElementTree as ET
 from datetime import date
 from urllib.parse import parse_qs, parse_qsl, unquote, urlencode, urlparse, urlunparse
 
+import position_filter
 import requests
 from bs4 import BeautifulSoup
 from locations import load_location_cache, normalize_location, save_location_cache
@@ -80,6 +81,13 @@ _GOOGLE_SEARCH = "https://www.google.com/search?"
 _KNOWN_SOURCE_TYPES = {"html", "rss", "google_proxy", "search_proxy", "json_api", "linkedin_api"}
 
 
+def _google_role_group(keyword_set: str) -> str:
+    """Format a ` OR `-joined keyword set into a Google quoted role group, e.g.
+    'CTO OR VP Engineering' -> '("CTO" OR "VP Engineering")'."""
+    phrases = [p.strip() for p in keyword_set.split(" OR ") if p.strip()]
+    return "(" + " OR ".join(f'"{p}"' for p in phrases) + ")"
+
+
 def _build_source_url(entry: dict, keyword_sets: dict) -> str:
     """
     Build a source's fetch URL from its config entry.
@@ -87,7 +95,8 @@ def _build_source_url(entry: dict, keyword_sets: dict) -> str:
     An explicit ``url`` always wins. Otherwise the URL is templated from the
     entry's type (matching the historical hand-written URLs byte-for-byte):
       - linkedin_api : keywords (literal or via keyword_set) + location + start
-      - google_proxy : query + num
+      - google_proxy : query (with an optional ``{roles}`` slot filled from a
+        keyword_set) + num
     """
     if entry.get("url"):
         return entry["url"]
@@ -112,6 +121,13 @@ def _build_source_url(entry: dict, keyword_sets: dict) -> str:
         query = entry.get("query")
         if not query:
             raise ValueError(f"source {entry.get('name')!r} ({stype}) is missing 'query'")
+        if "{roles}" in query:
+            ks = entry.get("keyword_set")
+            if ks not in keyword_sets:
+                raise ValueError(
+                    f"source {entry.get('name')!r} references unknown keyword_set {ks!r}"
+                )
+            query = query.replace("{roles}", _google_role_group(keyword_sets[ks]))
         return _GOOGLE_SEARCH + urlencode({
             "q": query,
             "num": str(entry.get("num", 20)),
@@ -122,19 +138,28 @@ def _build_source_url(entry: dict, keyword_sets: dict) -> str:
     )
 
 
-def _load_source_config(path: str = SOURCES_CONFIG_PATH) -> tuple[list[dict], dict[str, list[str]]]:
+def _load_source_config(
+    path: str = SOURCES_CONFIG_PATH, keyword_sets: dict | None = None
+) -> tuple[list[dict], dict[str, list[str]]]:
     """
     Load and validate the external source registry.
 
-    Returns (sources, fallbacks) where each source is a fully-resolved dict with
-    ``name``/``type``/``url``/``region`` (the shape the rest of this module
-    expects). Raises ValueError with a clear message on any malformed entry so
-    the workflow fails fast rather than silently scraping fewer sources.
+    Search role terms (``keyword_sets``) are the position-filter config's
+    ``search_keyword_sets`` (single source of truth); a ``keyword_sets`` block in
+    the sources file is rejected. Returns (sources, fallbacks) where each source
+    is a fully-resolved dict with ``name``/``type``/``url``/``region``. Raises
+    ValueError with a clear message on any malformed entry so the workflow fails
+    fast rather than silently scraping fewer sources.
     """
     with open(path, encoding="utf-8") as f:
         cfg = json.load(f)
 
-    keyword_sets = cfg.get("keyword_sets", {})
+    if "keyword_sets" in cfg:
+        raise ValueError(
+            f"{path}: 'keyword_sets' moved to position_filter.json 'search_keyword_sets'"
+        )
+    if keyword_sets is None:
+        keyword_sets = position_filter.POSITION_FILTER.get("search_keyword_sets", {})
     raw_sources = cfg.get("sources", [])
     if not isinstance(raw_sources, list) or not raw_sources:
         raise ValueError(f"{path}: 'sources' must be a non-empty list")

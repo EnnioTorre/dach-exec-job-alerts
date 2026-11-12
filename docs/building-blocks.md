@@ -11,8 +11,8 @@ Grouped by pipeline capability. Line numbers are approximate anchors into the so
 |---|---|---|---|---|
 | `_load_source_config` | scrape_jobs.py:159 | Load + validate registry; raise `ValueError` on duplicate name / unknown type | `(path) -> (sources, fallbacks)` | `_KNOWN_SOURCE_TYPES`, `_build_source_url` |
 | `_KNOWN_SOURCE_TYPES` | scrape_jobs.py:76 | Allowed `type` set: `html, rss, google_proxy, search_proxy, json_api, linkedin_api` | const set | — |
-| `_build_source_url` | scrape_jobs.py:96 | Template URL from entry (linkedin_api / google_proxy) unless explicit `url` | `(entry, keyword_sets) -> url` | — |
-| `sources.json` | config | Single source of truth for scrape targets + `keyword_sets` + `fallbacks` | JSON | consumed by loader |
+| `_build_source_url` | scrape_jobs.py:96 | Template URL from entry (linkedin_api / google_proxy, role terms via `keyword_set` + a google `{roles}` slot) unless explicit `url` | `(entry, keyword_sets) -> url` | — |
+| `sources.json` | config | Scrape targets + `fallbacks` (search role terms live in `position_filter.json` `search_keyword_sets`) | JSON | consumed by loader |
 
 ## Capability: Fetch, rate-limit & provider fallback
 

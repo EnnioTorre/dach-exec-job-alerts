@@ -1,29 +1,22 @@
 {
   "$schema_notes": [
     "External source registry for scrape_jobs.py. Edit this file to add/remove",
-    "scrape targets and search keywords without touching Python.",
+    "scrape targets without touching Python.",
     "",
-    "keyword_sets: named, reusable keyword query strings (LinkedIn boolean OR",
-    "  syntax). Reference them from a source via \"keyword_set\": \"<name>\".",
+    "Search role terms live in position_filter.json 'search_keyword_sets' (the",
+    "  single source of truth). Reference a set from a source via",
+    "  \"keyword_set\": \"<name>\". A 'keyword_sets' block here is rejected.",
     "",
     "sources: each entry needs \"name\", \"type\", \"region\". Then, by type:",
     "  - html / json_api : \"url\" (the page/endpoint to fetch)",
-    "  - linkedin_api     : \"location\" + \"start\" + one of",
-    "                       \"keyword_set\" (ref) or \"keywords\" (literal string)",
-    "  - google_proxy     : \"query\" (the Google 'q' string) + optional \"num\" (default 20)",
+    "  - linkedin_api     : \"location\" + \"start\" + \"keyword_set\" (ref)",
+    "  - google_proxy     : \"query\" (the Google 'q' string, with an optional",
+    "                       \"{roles}\" slot filled from \"keyword_set\") + optional",
+    "                       \"num\" (default 20)",
     "  Any source may instead supply an explicit \"url\" to override URL building.",
     "",
     "fallbacks: name -> [alternate urls] tried when a source returns no content."
   ],
-
-  "keyword_sets": {
-    "leader": "Engineering Manager OR Head of Engineering OR CTO OR VP Engineering OR Director of Engineering OR Head of Software",
-    "mgmt_broad": "Engineering Manager OR Program Manager OR Technical Program Manager OR Engineering Lead OR Head of Engineering OR Director of Engineering",
-    "transformation": "Head of Digital Transformation OR Transformation Manager OR Innovation Manager OR Head of Innovation OR Head of Digital OR VP Technology",
-    "city": "Engineering Manager OR Head of Engineering OR CTO OR VP Engineering OR Engineering Lead OR Director of Engineering",
-    "cto_vp": "CTO OR Chief Technology Officer OR VP Engineering OR VP Technology OR Chief Digital Officer",
-    "director": "Director of Engineering OR Director of Technology OR Engineering Director OR Head of Technology"
-  },
 
   "sources": [
     {"name": "stepstone_at_cto",     "type": "html", "region": "AT", "url": "https://www.stepstone.at/jobs/cto"},
@@ -54,13 +47,13 @@
     {"name": "linkedin_de_mgmt_1",     "type": "linkedin_api", "region": "DE", "keyword_set": "mgmt_broad",   "location": "Germany",           "start": 10},
 
     {"name": "linkedin_ch_leader_0",    "type": "linkedin_api", "region": "CH", "keyword_set": "leader",       "location": "Switzerland",       "start": 0},
-    {"name": "linkedin_ch_leader_1",    "type": "linkedin_api", "region": "CH", "keywords": "Engineering Manager OR CTO OR Head of Engineering OR VP Engineering", "location": "Switzerland", "start": 10},
+    {"name": "linkedin_ch_leader_1",    "type": "linkedin_api", "region": "CH", "keyword_set": "city", "location": "Switzerland", "start": 10},
 
     {"name": "linkedin_dach_cto_0",     "type": "linkedin_api", "region": "DACH", "keyword_set": "cto_vp",     "location": "DACH",              "start": 0},
     {"name": "linkedin_dach_dir_0",     "type": "linkedin_api", "region": "DACH", "keyword_set": "director",   "location": "DACH",              "start": 0},
 
-    {"name": "linkedin_vienna_0",       "type": "linkedin_api", "region": "AT", "keywords": "Engineering Manager OR Head of Engineering OR CTO OR Engineering Lead OR Director of Engineering", "location": "Vienna, Austria", "start": 0},
-    {"name": "linkedin_berlin_0",       "type": "linkedin_api", "region": "DE", "keywords": "Engineering Manager OR Head of Engineering OR CTO OR VP Engineering", "location": "Berlin, Germany", "start": 0},
+    {"name": "linkedin_vienna_0",       "type": "linkedin_api", "region": "AT", "keyword_set": "city", "location": "Vienna, Austria", "start": 0},
+    {"name": "linkedin_berlin_0",       "type": "linkedin_api", "region": "DE", "keyword_set": "city", "location": "Berlin, Germany", "start": 0},
 
     {"name": "linkedin_at_leader_4",    "type": "linkedin_api", "region": "AT", "keyword_set": "leader",       "location": "Austria",           "start": 40},
     {"name": "linkedin_de_leader_3",    "type": "linkedin_api", "region": "DE", "keyword_set": "leader",       "location": "Germany",           "start": 30},
@@ -69,24 +62,24 @@
     {"name": "linkedin_dach_transform_0", "type": "linkedin_api", "region": "DACH", "keyword_set": "transformation", "location": "DACH",         "start": 0},
 
     {"name": "linkedin_vienna_1",       "type": "linkedin_api", "region": "AT", "keyword_set": "city",         "location": "Vienna, Austria",   "start": 10},
-    {"name": "linkedin_graz_0",         "type": "linkedin_api", "region": "AT", "keywords": "Engineering Manager OR Head of Engineering OR CTO OR Engineering Lead OR Director of Engineering", "location": "Graz, Austria", "start": 0},
+    {"name": "linkedin_graz_0",         "type": "linkedin_api", "region": "AT", "keyword_set": "city", "location": "Graz, Austria", "start": 0},
     {"name": "linkedin_berlin_1",       "type": "linkedin_api", "region": "DE", "keyword_set": "city",         "location": "Berlin, Germany",   "start": 10},
     {"name": "linkedin_munich_0",       "type": "linkedin_api", "region": "DE", "keyword_set": "city",         "location": "Munich, Germany",   "start": 0},
     {"name": "linkedin_munich_1",       "type": "linkedin_api", "region": "DE", "keyword_set": "city",         "location": "Munich, Germany",   "start": 10},
     {"name": "linkedin_hamburg_0",      "type": "linkedin_api", "region": "DE", "keyword_set": "city",         "location": "Hamburg, Germany",  "start": 0},
     {"name": "linkedin_frankfurt_0",    "type": "linkedin_api", "region": "DE", "keyword_set": "city",         "location": "Frankfurt, Germany","start": 0},
     {"name": "linkedin_zurich_0",       "type": "linkedin_api", "region": "CH", "keyword_set": "city",         "location": "Zurich, Switzerland","start": 0},
-    {"name": "linkedin_bolzano_0",      "type": "linkedin_api", "region": "IT", "keywords": "Engineering Manager OR Head of Engineering OR CTO OR VP Engineering OR Engineering Lead", "location": "Bolzano, Italy", "start": 0},
+    {"name": "linkedin_bolzano_0",      "type": "linkedin_api", "region": "IT", "keyword_set": "city", "location": "Bolzano, Italy", "start": 0},
 
-    {"name": "google_linkedin_at",        "type": "google_proxy", "region": "AT",   "num": 20, "query": "site:linkedin.com/jobs/view (\"Head of Engineering\" OR \"VP Engineering\" OR CTO) Austria"},
-    {"name": "google_linkedin_de",        "type": "google_proxy", "region": "DE",   "num": 20, "query": "site:linkedin.com/jobs/view (\"CTO\" OR \"VP Engineering\" OR \"Director of Engineering\") Germany"},
-    {"name": "google_linkedin_ch",        "type": "google_proxy", "region": "CH",   "num": 20, "query": "site:linkedin.com/jobs/view (\"Engineering Manager\" OR \"Head of Engineering\" OR CTO) Switzerland"},
-    {"name": "google_linkedin_principal", "type": "google_proxy", "region": "DACH", "num": 20, "query": "site:linkedin.com/jobs/view (\"Principal Engineer\" OR \"Staff Engineer\" OR \"Tech Lead\") Germany OR Austria"},
-    {"name": "google_stepstone_at",       "type": "google_proxy", "region": "AT",   "num": 20, "query": "site:stepstone.at/jobs (\"CTO\" OR \"Head of Engineering\" OR \"VP Engineering\")"},
-    {"name": "google_stepstone_de",       "type": "google_proxy", "region": "DE",   "num": 20, "query": "site:stepstone.de/jobs (\"CTO\" OR \"Head of Engineering\" OR \"Engineering Manager\")"},
-    {"name": "google_jobs_ch",            "type": "google_proxy", "region": "CH",   "num": 20, "query": "site:jobs.ch (\"Head of Engineering\" OR \"Engineering Manager\" OR CTO)"},
-    {"name": "google_indeed_at",          "type": "google_proxy", "region": "AT",   "num": 20, "query": "site:indeed.com/viewjob OR site:indeed.de/viewjob \"Engineering Manager\" Austria"},
-    {"name": "google_jobs_bolzano",       "type": "google_proxy", "region": "IT",   "num": 20, "query": "site:linkedin.com/jobs/view (\"Head of Engineering\" OR \"Engineering Manager\" OR CTO OR \"Tech Lead\") (Bolzano OR Bozen OR \"South Tyrol\" OR Südtirol)"}
+    {"name": "google_linkedin_at",        "type": "google_proxy", "region": "AT",   "num": 20, "keyword_set": "leader", "query": "site:linkedin.com/jobs/view {roles} Austria"},
+    {"name": "google_linkedin_de",        "type": "google_proxy", "region": "DE",   "num": 20, "keyword_set": "cto_vp", "query": "site:linkedin.com/jobs/view {roles} Germany"},
+    {"name": "google_linkedin_ch",        "type": "google_proxy", "region": "CH",   "num": 20, "keyword_set": "leader", "query": "site:linkedin.com/jobs/view {roles} Switzerland"},
+    {"name": "google_linkedin_principal", "type": "google_proxy", "region": "DACH", "num": 20, "keyword_set": "cto_vp", "query": "site:linkedin.com/jobs/view {roles} Germany OR Austria"},
+    {"name": "google_stepstone_at",       "type": "google_proxy", "region": "AT",   "num": 20, "keyword_set": "leader", "query": "site:stepstone.at/jobs {roles}"},
+    {"name": "google_stepstone_de",       "type": "google_proxy", "region": "DE",   "num": 20, "keyword_set": "leader", "query": "site:stepstone.de/jobs {roles}"},
+    {"name": "google_jobs_ch",            "type": "google_proxy", "region": "CH",   "num": 20, "keyword_set": "leader", "query": "site:jobs.ch {roles}"},
+    {"name": "google_indeed_at",          "type": "google_proxy", "region": "AT",   "num": 20, "keyword_set": "leader", "query": "site:indeed.com/viewjob OR site:indeed.de/viewjob {roles} Austria"},
+    {"name": "google_jobs_bolzano",       "type": "google_proxy", "region": "IT",   "num": 20, "keyword_set": "leader", "query": "site:linkedin.com/jobs/view {roles} (Bolzano OR Bozen OR \"South Tyrol\" OR Südtirol)"}
   ],
 
   "fallbacks": {

@@ -68,6 +68,24 @@ def load_position_filter(path: str = POSITION_FILTER_CONFIG_PATH) -> dict:
     ):
         raise ValueError(f"{path}: 'search_keyword_sets' must be an object of string->string")
 
+    # Focus cross-check: every search set must target the role focus — carry no
+    # excluded-area term and at least one in-focus role (case-insensitive
+    # substring, matching runtime filtering). Keeps the searches aligned with the
+    # filter that judges their results (BAC-6).
+    in_focus_lc = [t.lower() for t in cfg["in_focus_roles"]]
+    excluded_lc = [t.lower() for t in cfg["excluded_areas"] + cfg["non_it_excluded"]]
+    for name, query in sks.items():
+        q = query.lower()
+        bad = next((e for e in excluded_lc if e in q), None)
+        if bad:
+            raise ValueError(
+                f"{path}: search_keyword_sets[{name!r}] targets excluded area {bad!r}"
+            )
+        if not any(role in q for role in in_focus_lc):
+            raise ValueError(
+                f"{path}: search_keyword_sets[{name!r}] targets no in-focus role"
+            )
+
     # A term cannot be both in-focus and excluded — that is a contradiction the
     # maintainer must resolve. Compared case-insensitively, matching the
     # case-insensitive filtering at runtime.

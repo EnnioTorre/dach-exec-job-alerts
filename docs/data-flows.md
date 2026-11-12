@@ -84,8 +84,15 @@ source needs a *new `type`*.
 1. **Add an entry** to [.github/config/sources.json](../.github/config/sources.json) under `sources`.
    Required fields: `name` (unique), `type`, `region`. Then by type:
    - `html` / `json_api` → explicit `url`
-   - `linkedin_api` → `location`, `start`, and `keywords` or `keyword_set`
-   - `google_proxy` / `search_proxy` → `query` (+ optional `num`, default 20)
+   - `linkedin_api` → `location`, `start`, and a `keyword_set` (name of a set in
+     [position_filter.json](../.github/config/position_filter.json) `search_keyword_sets`)
+   - `google_proxy` / `search_proxy` → `query` (+ optional `num`, default 20); the query may contain a
+     `{roles}` slot filled from a referenced `keyword_set` (templated as a quoted `("a" OR "b")` group)
+
+   Search **role terms** are **not** in `sources.json` — they live in `position_filter.json`
+   `search_keyword_sets` (the single source of truth), and every set is cross-checked at load time
+   (must carry an in-focus role and no excluded-area term). A `keyword_sets` block in `sources.json`
+   is rejected.
 2. If `type` is `html` **and the site needs bespoke parsing**, add the source `name` → parser
    function in `PARSER_MAP` (line 2044) in [.github/scripts/scrape_jobs.py](../.github/scripts/scrape_jobs.py).
    Reuse `parse_stepstone` / `parse_karriere_at` / `parse_jobs_ch` if the markup is similar.

@@ -20,8 +20,8 @@ Optional AI stages ([ai_pre_rank_enrich.py](.github/scripts/ai_pre_rank_enrich.p
 Single source of truth for scrape targets. Each source has a `type` that maps to a
 parser in `scrape_jobs.py` (`PARSER_MAP`). Required fields per type:
 - `html` / `json_api` → explicit `url`
-- `linkedin_api` → `location`, `start`, and `keywords` or `keyword_set`
-- `google_proxy` / `search_proxy` → `query` (+ optional `num`)
+- `linkedin_api` → `location`, `start`, and a `keyword_set` (a named set in `position_filter.json` `search_keyword_sets`)
+- `google_proxy` / `search_proxy` → `query` (+ optional `num`); the query may carry a `{roles}` slot filled from a referenced `keyword_set`
 
 Config is validated at load time: duplicate `name`s or unknown `type`s raise `ValueError`. When adding a source, wire any new `type` into `PARSER_MAP` in Python — never add parsing logic to the JSON.
 

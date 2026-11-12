@@ -152,7 +152,7 @@ class TestConfigDrivenFilter:
             "individual_contributor_markers": ["engineer"],
             "it_signal_terms": ["zorptech"],
             "generic_engineering_terms": ["engineer"],
-            "search_keyword_sets": {"x": "zorptech"},
+            "search_keyword_sets": {"x": "Head of Zorptech"},
         }
         p = tmp_path / "position_filter.json"
         p.write_text(json.dumps(cfg), encoding="utf-8")
