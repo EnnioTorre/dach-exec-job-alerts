@@ -56,9 +56,10 @@ Grouped by pipeline stage (there are no bounded contexts in the DDD sense — th
 | Stage | Script | Role |
 |---|---|---|
 | Config | [.github/config/sources.json](../.github/config/sources.json) | Source registry (single source of truth for scrape targets) |
-| 1 Scrape | [.github/scripts/scrape_jobs.py](../.github/scripts/scrape_jobs.py) | Fetch + parse all sources → `jobs_raw.json` |
-| 1b Enrich | [.github/scripts/ai_pre_rank_enrich.py](../.github/scripts/ai_pre_rank_enrich.py) | AI metadata correction → `jobs_raw_ai.json` |
-| 2 Rank | [.github/scripts/rank_jobs.py](../.github/scripts/rank_jobs.py) | Filter + dedup + score → `jobs_ranked.json` |
+| 1 Scrape | [.github/scripts/scrape_jobs.py](../.github/scripts/scrape_jobs.py) | Fetch + parse all sources → `jobs_raw.json` (every deduped row) |
+| 1a Score+pool | [.github/scripts/pool_jobs.py](../.github/scripts/pool_jobs.py) | Score every row + build the per-family-minimum + merit pool → `jobs_pool.json` ([ADR-0003](adrs/ADR-0003-merit-based-ranking-pipeline.md)) |
+| 1b Enrich | [.github/scripts/ai_pre_rank_enrich.py](../.github/scripts/ai_pre_rank_enrich.py) | AI metadata correction on the pool → `jobs_raw_ai.json` |
+| 2 Rank | [.github/scripts/rank_jobs.py](../.github/scripts/rank_jobs.py) | Read the (AI-enriched) pool, filter + dedup + score → `jobs_ranked.json` |
 | 2b Validate | [.github/scripts/test_scraper_loop.py](../.github/scripts/test_scraper_loop.py) | Re-run until thresholds met |
 | 3a Suggest | [.github/scripts/ai_suggest_sources.py](../.github/scripts/ai_suggest_sources.py) | Propose extra sources → `extra_sources.json` |
 | 3b Extra | [.github/scripts/scrape_extra.py](../.github/scripts/scrape_extra.py) | Scrape + merge extra sources |

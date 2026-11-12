@@ -90,6 +90,21 @@ score by one formula.
 | `it_management_focus_score` | scoring.py | Role-fit tiers (mgmt+IT=5.0 … non-IT=1.0) | `(title) -> float` |
 | `_geocode` / `GeocodeUnavailable` | scoring.py | Bounded, cached, retried Nominatim lookup; **raises on outage** (ADR-0002), neutral on miss/disabled | `(location) -> coords \| None` |
 
+## Capability: Score + pool (merit pipeline)
+
+**Module:** [.github/scripts/pool_jobs.py](../.github/scripts/pool_jobs.py) — the fair-access stage
+between scrape and rank ([ADR-0003](adrs/ADR-0003-merit-based-ranking-pipeline.md)). Reads
+`jobs_raw.json`, writes the bounded candidate pool `jobs_pool.json`.
+
+| Symbol | File | Responsibility | Key signature |
+|---|---|---|---|
+| `main` | pool_jobs.py | Load → score all → build pool → write envelope (`GeocodeUnavailable` propagates; cache saved in `finally`) | `() -> None` |
+| `score_all` | pool_jobs.py | Score every scraped row with the shared scorer; tag each with its `pool_family` | `(jobs) -> list[job]` |
+| `build_pool` | pool_jobs.py | Per-family **minimum** from each family's own top-scored rows, remainder by **global score** | `(jobs, target, fam_min) -> (pool, phase_by_index)` |
+| `_pool_family` | pool_jobs.py | Coarse family: `google` (search-proxy prefix) / `linkedin` (host) / `board` | `(job) -> str` |
+| `_build_envelope` / `_pool_stats` | pool_jobs.py | Pool + `pool_contribution` (by_source/by_family) + per-family scored/min/merit counts | `(raw, jobs) -> dict` |
+| `POOL_TARGET_SIZE` / `POOL_FAMILY_MIN` / `POOL_GEOCODE_MAX` | env | Pool bound / per-family floor / score-all geocoding budget (falls back to `RANK_GEOCODE_MAX`) | env knobs |
+
 ## Capability: Validation loop
 
 **Module:** [.github/scripts/test_scraper_loop.py](../.github/scripts/test_scraper_loop.py)
