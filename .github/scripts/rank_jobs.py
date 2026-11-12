@@ -24,7 +24,7 @@ from locations import (
 )
 from scoring import GeocodeUnavailable, _load_geocode_cache, _save_geocode_cache, score_job
 from scrape_jobs import _count_by, _source_family
-from text_match import _contains_any
+from text_match import _contains_any, _contains_keyword
 
 # ---------------------------------------------------------------------------
 # Relevance filter
@@ -100,6 +100,33 @@ def _strong_it_terms() -> list[str]:
     pf = position_filter.POSITION_FILTER
     weak = {t.lower() for t in pf["weak_body_terms"]}
     return [t for t in pf["it_signal_terms"] if t.lower() not in weak]
+
+
+def _distinct_term_count(text: str, terms: list[str]) -> int:
+    """Number of distinct list entries that appear (whole word/phrase) in text."""
+    return sum(1 for t in terms if _contains_keyword(text, t))
+
+
+def _hardware_dominated(job: dict) -> bool:
+    """True when the posting body names more hardware than software (Story 4):
+    H = distinct hardware_body_terms, S = distinct strong IT terms; the body is
+    hardware-dominated when H >= 1 and S <= 2*H. Skipped when the title carries a
+    strong IT term or is a CTO title — the function, not the employer, decides."""
+    body = (job.get("body_text") or "").lower()
+    if not body:
+        return False
+    title = (job.get("title") or "").lower()
+    strong = _strong_it_terms()
+    if _contains_any(title, strong):
+        return False
+    if bool(re.search(r"\bcto\b", title)) or "chief technology officer" in title:
+        return False
+    pf = position_filter.POSITION_FILTER
+    h = _distinct_term_count(body, pf["hardware_body_terms"])
+    if h == 0:
+        return False
+    s = _distinct_term_count(body, strong)
+    return s <= 2 * h
 
 
 def _has_linkedin_it_context(job: dict) -> bool:
@@ -198,6 +225,11 @@ def is_relevant(job: dict) -> bool:
     # excluded here and only enter via is_relevant_relaxed as a fill-in when too
     # few leadership roles are found.
     if not (cto_like or has_management):
+        return False
+
+    # Hardware-dominated body excludes an ambiguous/weak-title row before the
+    # IT-signal step (Story 4): a software or CTO title is never hit by it.
+    if _hardware_dominated(job):
         return False
 
     # Restrict to genuinely IT/software roles: a generic "engineering" title
