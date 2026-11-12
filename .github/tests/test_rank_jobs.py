@@ -152,6 +152,13 @@ class TestConfigDrivenFilter:
             "individual_contributor_markers": ["engineer"],
             "it_signal_terms": ["zorptech"],
             "generic_engineering_terms": ["engineer"],
+            "junior_markers": ["junior"],
+            "commercial_terms": ["deal"],
+            "off_focus_roles": ["head of data"],
+            "weak_body_terms": ["technology"],
+            "hardware_body_terms": ["semiconductor"],
+            "it_industries": ["Software Development"],
+            "excluded_seniority": ["Entry level"],
             "search_keyword_sets": {"x": "Head of Zorptech"},
         }
         p = tmp_path / "position_filter.json"
