@@ -311,12 +311,14 @@ class TestHasItSignal:
 class TestLinkedinItContext:
     def _ambiguous_linkedin_row(self, **extra) -> dict:
         # Leadership title, non-IT company name → passes the role gates but fails
-        # the title/company IT signal; only the body can confirm it.
+        # the title/company IT signal; only the body can confirm it. An IT industry
+        # is set so the body is what decides (Story 7 also requires it).
         row = {
             "title": "Head of Engineering",
             "company": "ENPULSION",
             "application_url": "https://www.linkedin.com/jobs/view/123/",
             "source_name": "linkedin_at",
+            "industries": "Software Development",
         }
         row.update(extra)
         return row
@@ -355,12 +357,14 @@ class TestTieredBodyEvidence:
     confirm, while weak terms still confirm in titles via _has_it_signal."""
 
     def _ambiguous_linkedin_row(self, **extra) -> dict:
-        # Leadership title, non-IT company → only the body can confirm it.
+        # Leadership title, non-IT company → only the body can confirm it (IT
+        # industry set so the Story 7 industry requirement is met).
         row = {
             "title": "Head of Engineering",
             "company": "ENPULSION",
             "application_url": "https://www.linkedin.com/jobs/view/123/",
             "source_name": "linkedin_at",
+            "industries": "Software Development",
         }
         row.update(extra)
         return row
@@ -420,12 +424,14 @@ class TestHardwareDominance:
     title; a strong software title or CTO title is never hit by the rule."""
 
     def _ambiguous_linkedin_row(self, **extra) -> dict:
-        # Leadership title, non-IT company → only the body decides.
+        # Leadership title, non-IT company → only the body decides (IT industry
+        # set so the Story 7 industry requirement is met).
         row = {
             "title": "Head of Research and Development",
             "company": "ENPULSION",
             "application_url": "https://www.linkedin.com/jobs/view/123/",
             "source_name": "linkedin_at",
+            "industries": "Software Development",
         }
         row.update(extra)
         return row
@@ -461,6 +467,70 @@ class TestHardwareDominance:
             body_text="Design RF and UHF front-ends; some software tools support the lab.",
         )
         assert rank_jobs.is_relevant(row) is False
+
+
+class TestSeniorityIndustryConfirmation:
+    """it-role-classification Story 7 (BAC-4/6/18/19/20/27): LinkedIn seniority
+    excludes entry-level/internship rows; an ambiguous LinkedIn title needs an IT
+    industry AND a strong body term; a title IT signal wins over any industry."""
+
+    _STRONG_BODY = "You will lead our software platform, cloud and backend teams."
+
+    def _row(self, **extra) -> dict:
+        row = {
+            "title": "VP of Engineering",
+            "company": "ENPULSION",
+            "application_url": "https://www.linkedin.com/jobs/view/123/",
+            "source_name": "linkedin_at",
+        }
+        row.update(extra)
+        return row
+
+    def test_entry_level_or_internship_excluded(self):
+        # BAC-18: excluded whatever the title — even an IT title that otherwise passes.
+        for seniority in ("Entry level", "Internship"):
+            row = self._row(title="Head of Software Engineering", seniority=seniority)
+            assert rank_jobs.is_relevant(row) is False, seniority
+            assert rank_jobs.is_relevant_relaxed(row) is False, seniority
+        kept = self._row(title="Head of Software Engineering", seniority="Mid-Senior level")
+        assert rank_jobs.is_relevant(kept) is True
+
+    def test_it_industry_plus_strong_body_confirms(self):
+        # BAC-6: ambiguous title + IT industry + strong body term → eligible,
+        # including a multi-industry string whose names contain commas.
+        for industries in ("Software Development",
+                           "Technology, Information and Internet, Software Development",
+                           "Technology, Information and Media"):
+            row = self._row(industries=industries, body_text=self._STRONG_BODY)
+            assert rank_jobs.is_relevant(row) is True, industries
+
+    def test_it_industry_alone_does_not_confirm(self):
+        # BAC-19: IT industry but only generic body words → excluded.
+        row = self._row(industries="Software Development",
+                        body_text="We drive technology and digital transformation.")
+        assert rank_jobs.is_relevant(row) is False
+
+    def test_non_it_industry_does_not_exclude_it_titled_row(self):
+        # BAC-20: a title IT signal wins over a non-IT industry.
+        row = self._row(title="Head of Software Development",
+                        industries="Machinery Manufacturing", body_text=self._STRONG_BODY)
+        assert rank_jobs.is_relevant(row) is True
+
+    def test_ambiguous_title_at_non_it_industry_excluded(self):
+        # BAC-27 (accepted trade-off): Almedia-style strong body but non-IT
+        # industry → excluded; a non-IT media industry is not mistaken for IT,
+        # and a missing criteria block leaves the title unconfirmed.
+        for industries in ("Advertising Services",
+                           "Broadcast Media Production and Distribution", ""):
+            row = self._row(industries=industries,
+                            body_text="Lead our backend and frontend engineering teams.")
+            assert rank_jobs.is_relevant(row) is False, industries
+
+    def test_tech_leadership_eligible_regardless_of_industry(self):
+        # BAC-4: CTO / IoT technology leadership at an industrial employer stay eligible.
+        for title in ("Chief Technology Officer (CTO)", "IoT Technology Director"):
+            row = self._row(title=title, industries="Machinery Manufacturing")
+            assert rank_jobs.is_relevant(row) is True, title
 
 
 # ---------------------------------------------------------------------------

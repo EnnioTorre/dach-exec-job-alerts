@@ -71,7 +71,9 @@ Grouped by pipeline capability. Line numbers are approximate anchors into the so
 | `_title_excluded` | rank_jobs.py | Exclude junior / commercial / off-focus titles (shared by both gates) | `(title) -> bool` |
 | `_strong_it_terms` | rank_jobs.py | Strong IT terms = `it_signal_terms` − `weak_body_terms`; a weak word alone never confirms a body | `() -> list[str]` |
 | `_hardware_dominated` | rank_jobs.py | Exclude a body naming more hardware than software: H=distinct `hardware_body_terms`, S=distinct strong terms, excluded when `H≥1 and S≤2·H`; skipped for a strong-software or CTO title (Story 4) | `(job) -> bool` |
-| `_has_linkedin_it_context` | rank_jobs.py | Confirm an ambiguous LinkedIn row when its retained `body_text` (Story 6) carries a **strong** IT term (Story 3) | `(job) -> bool` |
+| `_has_linkedin_it_context` | rank_jobs.py | Confirm an ambiguous LinkedIn row only when its LinkedIn `industries` names an IT industry **and** its retained `body_text` carries a **strong** IT term (Stories 3/7) | `(job) -> bool` |
+| `_has_it_industry` | rank_jobs.py | Case-insensitive substring match of `it_industries` in the row's LinkedIn `industries` string | `(job) -> bool` |
+| `_seniority_excluded` | rank_jobs.py | Exclude LinkedIn `seniority` in `excluded_seniority` (Entry level / Internship), in both gates | `(job) -> bool` |
 | `_source_domain_ok` | rank_jobs.py | URL must match source platform domain | `(job) -> bool` |
 | `fingerprint` | rank_jobs.py | Dedup key `title\|company` (normalized) | `(job) -> str` |
 | `_funnel_by` / `ranked_funnel` | rank_jobs.py | Per-source & per-family funnel counts (pool → reached → passed → shortlisted) written to `jobs_ranked.json` for the honest digest | `(key_fn, pool, reached, passed, shortlisted) -> dict` |
