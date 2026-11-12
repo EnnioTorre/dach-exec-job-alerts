@@ -6,12 +6,13 @@ sources, ranks them deterministically, and publishes a daily digest as a GitHub 
 
 ## Architecture
 
-Four-stage pipeline (all Python scripts live in [.github/scripts/](.github/scripts/), orchestrated by [.github/workflows/dach-exec-job-alerts.yml](.github/workflows/dach-exec-job-alerts.yml)):
+Five-stage pipeline (all Python scripts live in [.github/scripts/](.github/scripts/), orchestrated by [.github/workflows/dach-exec-job-alerts.yml](.github/workflows/dach-exec-job-alerts.yml)):
 
-1. **Scrape** — [scrape_jobs.py](.github/scripts/scrape_jobs.py) reads [.github/config/sources.json](.github/config/sources.json), dispatches each source to a parser by its `type`, writes `/tmp/jobs/jobs_raw.json`.
-2. **Rank** — [rank_jobs.py](.github/scripts/rank_jobs.py) dedups + filters + scores, writes `/tmp/jobs/jobs_ranked.json`.
-3. **Validate** — [test_scraper_loop.py](.github/scripts/test_scraper_loop.py) re-runs the pipeline until minimum thresholds (raw count, ranked count, active sources) are met.
-4. **Publish** — [create_issue.py](.github/scripts/create_issue.py) formats the digest and opens a GitHub issue via the `gh` CLI.
+1. **Scrape** — [scrape_jobs.py](.github/scripts/scrape_jobs.py) reads [.github/config/sources.json](.github/config/sources.json), dispatches each source to a parser by its `type`, writes `/tmp/jobs/jobs_raw.json` (every deduped row — no arrival-order cap).
+2. **Score + pool** — [pool_jobs.py](.github/scripts/pool_jobs.py) scores every scraped row with the shared scorer and builds a bounded, merit-based candidate pool (per-family minimum from each family's own top rows, remainder by global score), writes `/tmp/jobs/jobs_pool.json` ([ADR-0003](docs/adrs/ADR-0003-merit-based-ranking-pipeline.md)). An optional **AI pre-rank** stage ([ai_pre_rank_enrich.py](.github/scripts/ai_pre_rank_enrich.py)) then corrects metadata on the pool.
+3. **Rank** — [rank_jobs.py](.github/scripts/rank_jobs.py) reads the (AI-enriched) pool, dedups + filters + scores, writes `/tmp/jobs/jobs_ranked.json`.
+4. **Validate** — [test_scraper_loop.py](.github/scripts/test_scraper_loop.py) re-runs the pipeline until minimum thresholds (raw count, ranked count, active sources) are met.
+5. **Publish** — [create_issue.py](.github/scripts/create_issue.py) formats the digest and opens a GitHub issue via the `gh` CLI.
 
 Optional AI stages ([ai_pre_rank_enrich.py](.github/scripts/ai_pre_rank_enrich.py), [ai_suggest_sources.py](.github/scripts/ai_suggest_sources.py), [discover_sources_mcp.py](discover_sources_mcp.py)) use GitHub Models via [github_models.py](.github/scripts/github_models.py) and require `GITHUB_TOKEN`. They are non-blocking: the deterministic pipeline works without them.
 
