@@ -114,3 +114,21 @@ Applies to `build-task` (and any fix/commit flow). Takes precedence over the ski
   have its own fixture + assertion.
   *Why: the `with_ai` variant of the funnel table (extra AI Quality/Recommendation columns) shipped
   untested and could have broken undetected — flagged by the test-reviewer on PR #152.*
+
+## Rules added 2026-11-12 (Story 7 / PR #155)
+
+## Reconcile docs in the first commit
+
+- **When the plan or spec names a doc to reconcile in the same PR (a `Docs:` note), reconcile it in the
+  FIRST commit — treat it as a build checklist item, not something review will catch.** An explicitly
+  required reconciliation left out voids the team's reconcile-in-PR rule and ships stale docs.
+  *Why: Story 7's plan named `data-flows.md` for reconciliation in-PR; the first commit touched no docs,
+  and the gap-critic had to catch the omission on PR #155 — fixed only in a follow-up commit.*
+
+## Migrate every user to the new single source of truth
+
+- **When migrating a field to a new single-source-of-truth config, convert ALL of its users — including
+  literal / inline forms — not just the primary block.** A leftover literal is a silent second source of
+  truth that bypasses the new validation.
+  *Why: moving search keywords to `position_filter.json` left several LinkedIn sources with literal
+  `keywords` that skipped the new focus cross-check; they had to be converted to set refs on PR #155.*
