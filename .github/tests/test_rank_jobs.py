@@ -349,6 +349,53 @@ class TestLinkedinItContext:
         assert rank_jobs.is_relevant(row) is False
 
 
+class TestTieredBodyEvidence:
+    """it-role-classification Story 3 (BAC-5/12): a LinkedIn body confirms an
+    ambiguous title only via a STRONG IT term; weak/generic words no longer
+    confirm, while weak terms still confirm in titles via _has_it_signal."""
+
+    def _ambiguous_linkedin_row(self, **extra) -> dict:
+        # Leadership title, non-IT company → only the body can confirm it.
+        row = {
+            "title": "Head of Engineering",
+            "company": "ENPULSION",
+            "application_url": "https://www.linkedin.com/jobs/view/123/",
+            "source_name": "linkedin_at",
+        }
+        row.update(extra)
+        return row
+
+    def test_generic_word_body_does_not_confirm(self):
+        # BAC-5: a body of only weak/generic words does not confirm.
+        row = self._ambiguous_linkedin_row(
+            body_text="We drive technology and digital transformation of our data and the CTO agenda."
+        )
+        assert rank_jobs.is_relevant(row) is False
+
+    def test_strong_body_term_confirms(self):
+        # BAC-5: a strong IT term in the body confirms the ambiguous LinkedIn row.
+        row = self._ambiguous_linkedin_row(
+            body_text="You will own our software platform and cloud backend."
+        )
+        assert rank_jobs.is_relevant(row) is True
+
+    def test_plant_chief_technical_officer_excluded_without_it_body(self):
+        # BAC-12: a plant "Chief Technical Officer" with a generic production body
+        # is not confirmed (no strong IT term).
+        row = self._ambiguous_linkedin_row(
+            title="Chief Technical Officer",
+            company="RAS Fish Processing",
+            body_text="Lead our production facilities, plant technology and manufacturing operations.",
+        )
+        assert rank_jobs.is_relevant(row) is False
+
+    def test_weak_term_still_valid_in_title(self):
+        # BAC-5: weak terms remain valid in TITLES — _has_it_signal is unchanged,
+        # so "IoT Technology Director" stays eligible on the title (no body needed).
+        job = {"title": "IoT Technology Director", "application_url": "https://acme.com/jobs/123"}
+        assert rank_jobs.is_relevant(job) is True
+
+
 # ---------------------------------------------------------------------------
 # Per-source / per-family funnel counts in jobs_ranked.json (Story 8b)
 # ---------------------------------------------------------------------------
