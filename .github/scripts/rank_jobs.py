@@ -129,16 +129,35 @@ def _hardware_dominated(job: dict) -> bool:
     return s <= 2 * h
 
 
+def _seniority_excluded(job: dict) -> bool:
+    """True when the LinkedIn seniority level is excluded (Entry level / Internship),
+    whatever the title says (Story 7). An empty seniority never excludes."""
+    seniority = (job.get("seniority") or "").strip().lower()
+    if not seniority:
+        return False
+    excluded = {s.strip().lower() for s in position_filter.POSITION_FILTER["excluded_seniority"]}
+    return seniority in excluded
+
+
+def _has_it_industry(job: dict) -> bool:
+    """True when the LinkedIn industries string names an it_industries entry.
+    Substring match: the string may list several industries, and names contain commas."""
+    industries = (job.get("industries") or "").lower()
+    if not industries:
+        return False
+    return any(i.lower() in industries for i in position_filter.POSITION_FILTER["it_industries"])
+
+
 def _has_linkedin_it_context(job: dict) -> bool:
-    """Confirm an ambiguous-title LinkedIn row via its retained posting body
-    (Story 6): True only when it is a LinkedIn row whose body carries a STRONG IT
-    signal — a generic/weak word alone no longer confirms (Story 3)."""
+    """Confirm an ambiguous-title LinkedIn row: True only when its LinkedIn
+    industry is an IT industry AND its retained body carries a STRONG IT term
+    (Stories 3/7). The industry alone never confirms; no criteria → unconfirmed."""
     if _source_family(job) != "linkedin":
         return False
     body = (job.get("body_text") or "").lower()
     if not body:
         return False
-    return _contains_any(body, _strong_it_terms())
+    return _has_it_industry(job) and _contains_any(body, _strong_it_terms())
 
 
 def _hard_reject_common(title: str, url: str, ai_rel: str, ai_url_quality: str) -> bool:
@@ -201,6 +220,10 @@ def is_relevant(job: dict) -> bool:
     if _title_excluded(title):
         return False
 
+    # LinkedIn Entry level / Internship postings are excluded whatever the title (Story 7).
+    if _seniority_excluded(job):
+        return False
+
     cto_like = bool(re.search(r"\bcto\b", title)) or "chief technology officer" in title
     has_role = any(kw in title for kw in pf["in_focus_roles"])
     has_domain = any(kw in title for kw in pf["domain_terms"])
@@ -239,7 +262,8 @@ def is_relevant(job: dict) -> bool:
     if _has_it_signal(job):
         return True
     # Ambiguous LinkedIn leadership title: the guest card hides the body, so a
-    # real IT role looks generic. Confirm via the retained posting body (Story 6).
+    # real IT role looks generic. Confirm only with an IT industry AND a strong
+    # body term (Stories 3/7).
     return _has_linkedin_it_context(job)
 
 
@@ -262,6 +286,8 @@ def is_relevant_relaxed(job: dict) -> bool:
         return False
     # The shortfall fill applies the same junior/commercial/off-focus exclusions.
     if _title_excluded(title):
+        return False
+    if _seniority_excluded(job):
         return False
 
     # Allow strong leadership even without the full strict role+domain pair, but
