@@ -8,6 +8,7 @@ Writes /tmp/jobs/jobs_ranked.json
 import json
 import os
 import re
+import sys
 from collections import defaultdict
 from datetime import date
 from pathlib import Path
@@ -21,7 +22,7 @@ from locations import (
     normalize_location,
     save_location_cache,
 )
-from scoring import _load_geocode_cache, _save_geocode_cache, score_job
+from scoring import GeocodeUnavailable, _load_geocode_cache, _save_geocode_cache, score_job
 from scrape_jobs import _count_by, _source_family
 from text_match import _contains_any
 
@@ -285,6 +286,11 @@ _INPUT_CANDIDATES = (
 )
 _OUTPUT_PATH = "/tmp/jobs/jobs_ranked.json"
 
+# Distinct CLI exit code for a hard geolocation outage (GeocodeUnavailable), so
+# the validation loop can tell it apart from a generic bad pass (exit 1) and not
+# retry it. ADR-0002.
+EXIT_GEOCODE_UNAVAILABLE = 3
+
 
 def _input_path(candidates: tuple[str, ...] = _INPUT_CANDIDATES) -> str:
     for path in candidates:
@@ -360,8 +366,15 @@ def main() -> None:
     print(f"After dedup: {len(deduped)}")
 
     # 3. Score
-    for j in deduped:
-        j["score"] = score_job(j)
+    try:
+        for j in deduped:
+            j["score"] = score_job(j)
+    except GeocodeUnavailable:
+        # Persist coords/misses resolved this pass so a retry reuses the warm
+        # cache instead of re-querying a failing Nominatim (ADR-0002), then fail
+        # loud — never ship a digest scored against an outage.
+        _save_geocode_cache()
+        raise
 
     # 4. Sort descending
     ranked = sorted(deduped, key=lambda j: j["score"], reverse=True)
@@ -467,5 +480,15 @@ def main() -> None:
     print(f"Wrote {out_path}")
 
 
+def _cli() -> None:
+    try:
+        main()
+    except GeocodeUnavailable as exc:
+        # Distinct code so the validation loop aborts (no retry) on a hard
+        # geolocation outage rather than re-hammering Nominatim.
+        print(f"GEOCODE_UNAVAILABLE: {exc}", file=sys.stderr)
+        raise SystemExit(EXIT_GEOCODE_UNAVAILABLE) from exc
+
+
 if __name__ == "__main__":
-    main()
+    _cli()

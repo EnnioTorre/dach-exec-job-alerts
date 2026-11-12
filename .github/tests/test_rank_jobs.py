@@ -552,3 +552,83 @@ class TestStandardizedLocationRanking:
         assert before == after
 
 
+
+
+# ---------------------------------------------------------------------------
+# Fail-loud geolocation end-to-end (Story 12 / ADR-0002)
+# ---------------------------------------------------------------------------
+
+class TestGeocodeFailLoud:
+    def _cto_envelope(self):
+        return {
+            "date": "2026-11-12",
+            "jobs": [{
+                "title": "Chief Technology Officer",
+                "company": "Acme Software GmbH",
+                "application_url": "https://www.karriere.at/jobs/111",
+                "location": "Wien", "display": "Wien",
+            }],
+        }
+
+    def _wire_main(self, tmp_path, monkeypatch, envelope):
+        in_path = tmp_path / "in.json"
+        in_path.write_text(json.dumps(envelope), encoding="utf-8")
+        monkeypatch.setattr(rank_jobs, "_input_path", lambda *a, **k: str(in_path))
+        monkeypatch.setattr(rank_jobs, "_OUTPUT_PATH", str(tmp_path / "out.json"))
+        monkeypatch.setattr(rank_jobs, "load_location_cache", lambda *a, **k: None)
+        monkeypatch.setattr(rank_jobs, "save_location_cache", lambda *a, **k: None)
+        monkeypatch.setattr(rank_jobs, "_load_geocode_cache", lambda *a, **k: None)
+        return tmp_path / "out.json"
+
+    def test_rank_main_saves_geocode_cache_on_geocode_failure(self, tmp_path, monkeypatch):
+        self._wire_main(tmp_path, monkeypatch, self._cto_envelope())
+        saved = {"n": 0}
+        monkeypatch.setattr(rank_jobs, "_save_geocode_cache",
+                            lambda *a, **k: saved.__setitem__("n", saved["n"] + 1))
+
+        def _boom(_job):
+            raise rank_jobs.GeocodeUnavailable("nominatim down")
+
+        monkeypatch.setattr(rank_jobs, "score_job", _boom)
+        with pytest.raises(rank_jobs.GeocodeUnavailable):
+            rank_jobs.main()
+        # The finally/except persisted the cache before the outage propagated.
+        assert saved["n"] >= 1
+
+    def test_rank_main_disabled_geocode_still_writes_ranked(self, tmp_path, monkeypatch):
+        # RANK_GEOCODE=false (autouse fixture) → neutral distance, no raise.
+        monkeypatch.setattr(rank_jobs, "_save_geocode_cache", lambda *a, **k: None)
+        out = self._wire_main(tmp_path, monkeypatch, self._cto_envelope())
+        rank_jobs.main()  # must not raise
+        result = json.loads(out.read_text(encoding="utf-8"))
+        assert result["jobs"], "a neutral-distance digest must still be written"
+
+    def test_rank_cli_exits_geocode_code_on_outage(self, monkeypatch, capsys):
+        def _outage():
+            raise rank_jobs.GeocodeUnavailable("down")
+
+        monkeypatch.setattr(rank_jobs, "main", _outage)
+        with pytest.raises(SystemExit) as ei:
+            rank_jobs._cli()
+        assert ei.value.code == rank_jobs.EXIT_GEOCODE_UNAVAILABLE
+        assert "GEOCODE_UNAVAILABLE" in capsys.readouterr().err
+
+    def test_rank_cli_does_not_map_other_errors(self, monkeypatch):
+        def _other():
+            raise RuntimeError("something else")
+
+        monkeypatch.setattr(rank_jobs, "main", _other)
+        with pytest.raises(RuntimeError):
+            rank_jobs._cli()
+
+    def test_retry_reuses_warm_cache_no_regeocode(self, monkeypatch):
+        # A cached location (hit OR recorded miss) must never re-query Nominatim,
+        # so a retry after a persisted cache is warm (ADR-0002 bounds retries).
+        def _must_not_query(*a, **k):
+            raise AssertionError("cached location must not be re-geocoded")
+
+        monkeypatch.setattr(scoring, "_geocode_query", _must_not_query)
+        scoring._GEOCODE_CACHE["somewhere, österreich"] = (48.0, 16.0)
+        scoring._GEOCODE_CACHE["nowhere, österreich"] = None
+        assert scoring._geocode("Somewhere, Österreich") == (48.0, 16.0)
+        assert scoring._geocode("Nowhere, Österreich") is None

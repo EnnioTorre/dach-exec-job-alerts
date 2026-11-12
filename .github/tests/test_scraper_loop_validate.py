@@ -12,6 +12,7 @@ Covers:
 """
 
 import json
+from pathlib import Path
 
 import test_scraper_loop as loop
 
@@ -113,3 +114,60 @@ class TestReadOnlyFastPath:
         rc = loop.main()
         assert rc == 1
         assert calls["n"] >= 1  # the scraper WAS invoked for the invalid case
+
+
+# ---------------------------------------------------------------------------
+# Fail-loud geolocation end-to-end (Story 12 / ADR-0002)
+# ---------------------------------------------------------------------------
+
+
+class TestGeocodeOutageLoop:
+    def test_scraper_loop_does_not_retry_on_geocode_outage(self, monkeypatch, tmp_path):
+        # Invalid existing output → enter the loop. Rank reports a hard outage;
+        # the loop must abort immediately (no second attempt) and return the code.
+        _point_files(monkeypatch, tmp_path, {"jobs": [], "stats": {}}, {"jobs": []})
+        rank_calls = {"n": 0}
+
+        def _fake_run(cmd, extra_env=None):
+            if "rank_jobs.py" in cmd[1]:
+                rank_calls["n"] += 1
+                return (loop.EXIT_GEOCODE_UNAVAILABLE, "", "GEOCODE_UNAVAILABLE: down")
+            return (0, "", "")  # scrape ok
+
+        monkeypatch.setattr(loop, "_run", _fake_run)
+        monkeypatch.setattr(loop.os, "makedirs", lambda *a, **k: None)
+        monkeypatch.setenv("TEST_ATTEMPTS", "3")
+
+        rc = loop.main()
+        assert rc == loop.EXIT_GEOCODE_UNAVAILABLE
+        assert rank_calls["n"] == 1  # aborted — not retried 3×
+
+    def test_scraper_loop_still_retries_genuine_bad_pass(self, monkeypatch, tmp_path):
+        # A plain non-zero rank exit still retries up to TEST_ATTEMPTS.
+        _point_files(monkeypatch, tmp_path, {"jobs": [], "stats": {}}, {"jobs": []})
+        rank_calls = {"n": 0}
+
+        def _fake_run(cmd, extra_env=None):
+            if "rank_jobs.py" in cmd[1]:
+                rank_calls["n"] += 1
+                return (1, "", "boom")  # generic failure
+            return (0, "", "")
+
+        monkeypatch.setattr(loop, "_run", _fake_run)
+        monkeypatch.setattr(loop.os, "makedirs", lambda *a, **k: None)
+        monkeypatch.setenv("TEST_ATTEMPTS", "2")
+
+        rc = loop.main()
+        assert rc == 1
+        assert rank_calls["n"] == 2  # retried, not aborted
+
+
+def test_workflow_final_rerank_not_continue_on_error():
+    # The authoritative Stage-3c re-rank must fail the run on an outage, while the
+    # optional AI stages stay continue-on-error (ADR-0002 end-to-end).
+    wf = Path(__file__).resolve().parents[1] / "workflows" / "dach-exec-job-alerts.yml"
+    text = wf.read_text(encoding="utf-8")
+    # The step's own YAML, bounded by the next stage's comment banner.
+    block = text.split("- name: Re-rank after second pass", 1)[1].split("# ---", 1)[0]
+    assert "continue-on-error" not in block
+    assert "continue-on-error: true" in text  # the AI stages still have it
