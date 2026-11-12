@@ -43,3 +43,28 @@ Applies to `specify-task`. Takes precedence over the skill's defaults. Also see
   *Why: Story 4's plan assigned the pipeline ADR to ADR-0002 (already the fail-loud ADR) and the budget
   knob to LOCATION_GEOCODE_MAX (already used by `locations.py`); caught at specify-task and fixed via
   revise-plan R4 to ADR-0003 / POOL_GEOCODE_MAX before building.*
+
+## Rules added 2026-11-12
+
+## Blast radius must enumerate every inline construction of a changed config
+
+- **When a change makes a config field REQUIRED (or adds required fields to a validated config
+  loader), the spec's blast radius must enumerate EVERY inline construction of that config across the
+  test suite — not just the loader's own fixture.** Grep the tests for the config's required keys
+  (e.g. `individual_contributor_markers`, `domain_terms`) and list each inline dict that must gain the
+  new field, or the build will break on a fixture the spec never named.
+  *Why: Story 1's spec blast radius named only `test_position_filter_config._valid_config`; the
+  second inline config in `test_rank_jobs.test_filter_reads_role_terms_from_config` also had to gain
+  the 7 new required fields, which only surfaced as a failing test at build time (PR #161) and forced
+  the recorded 4-file deviation.*
+
+## One falsifiable test per widened validation branch
+
+- **When a change widens N validation branches (e.g. adds a list to BOTH an overlap check AND a
+  search-set check), the verification criteria must name one falsifiable test PER branch — not one
+  test that happens to cover the first branch.** A single test over one branch leaves the other
+  branch deletable with the suite still green.
+  *Why: Story 1 added `off_focus_roles` to both the overlap cross-check and the search-set cross-check
+  in `position_filter.load_position_filter`, but the plan's tests covered only the overlap branch; the
+  search-set `excluded_lc` union was untested and could be deleted without failing any test — caught
+  by the test-reviewer on PR #161 and fixed in `fa256a1`.*
