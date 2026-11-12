@@ -95,3 +95,21 @@ the pattern that fits:
   base landed carries stale sibling files, so its own code/docs premise may not hold until rebased.
   *Why: PR #145 (pool stage) was branched before PR #144 (cap removal) merged, so `scrape_jobs.py` on
   it still had the `[:200]` cap — contradicting the pool's "cap removed" docstring until rebased onto main.*
+
+## Rules added 2026-11-12 (S11/S12 finalise)
+
+## Confirm a PR is open before pushing a post-review fix
+
+- **Before pushing a review fix to a feature branch, confirm the PR is still open** (`gh pr view <n>
+  --json state`). A PR merged between review and fix means the branch is dead — the fix must go to
+  `main` via a fresh branch/PR, or it is silently orphaned and never ships.
+  *Why: the #156 (Story 12) comment reword was pushed to its branch after #156 had already merged, so
+  it never reached main; it had to be re-landed via a new PR (#158).*
+
+## Verify the staged set before every commit
+
+- **Before every commit, run `git diff --cached --name-only` and confirm every staged path belongs to
+  the current task.** Never trust the index to be clean after branch switches, `git stash`, or subagent
+  git operations — a leftover-staged change set can ride into the wrong commit.
+  *Why: a Story-11 (docs-only #157) commit accidentally bundled the entire #156 code change set because
+  the index already held those files; it had to be reset + force-pushed to recover.*
