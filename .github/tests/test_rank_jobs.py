@@ -414,6 +414,55 @@ class TestTieredBodyEvidence:
         assert rank_jobs.is_relevant(row) is False
 
 
+class TestHardwareDominance:
+    """it-role-classification Story 4 (BAC-3 body / 24 / 25 / 26): a body that
+    names more hardware than software (H>=1, S<=2H) excludes an ambiguous/weak
+    title; a strong software title or CTO title is never hit by the rule."""
+
+    def _ambiguous_linkedin_row(self, **extra) -> dict:
+        # Leadership title, non-IT company → only the body decides.
+        row = {
+            "title": "Head of Research and Development",
+            "company": "ENPULSION",
+            "application_url": "https://www.linkedin.com/jobs/view/123/",
+            "source_name": "linkedin_at",
+        }
+        row.update(extra)
+        return row
+
+    def test_hardware_dominated_body_excluded(self):
+        # BAC-24: Onodrim-style — H=1 (PCB), S=1 (software) → 1 <= 2 → excluded.
+        row = self._ambiguous_linkedin_row(
+            body_text="We lead PCB and hardware product development, with some software tooling."
+        )
+        assert rank_jobs.is_relevant(row) is False
+
+    def test_strong_software_outweighs_incidental_hardware(self):
+        # BAC-25: H=1 (PCB), S=4 (software/cloud/platform/backend) → 4 >= 3 → eligible.
+        row = self._ambiguous_linkedin_row(
+            body_text="One PCB aside, you own our software, cloud, platform and backend systems."
+        )
+        assert rank_jobs.is_relevant(row) is True
+
+    def test_software_title_not_hit_by_hardware_body_rule(self):
+        # BAC-26: a strong software title is never excluded by the body rule,
+        # even at a semiconductor employer whose body describes its chips.
+        row = self._ambiguous_linkedin_row(
+            title="Head of Software Engineering",
+            body_text="Our semiconductor chips, wafer fab and physical design drive the product.",
+        )
+        assert rank_jobs.is_relevant(row) is True
+
+    def test_semiconductor_body_excluded_when_title_ambiguous(self):
+        # BAC-3 (body part): NXP "Manager RF System Engineering"-style —
+        # H=2 (RF, UHF), S=1 (software) → 1 <= 4 → excluded.
+        row = self._ambiguous_linkedin_row(
+            title="Manager RF System Engineering",
+            body_text="Design RF and UHF front-ends; some software tools support the lab.",
+        )
+        assert rank_jobs.is_relevant(row) is False
+
+
 # ---------------------------------------------------------------------------
 # Per-source / per-family funnel counts in jobs_ranked.json (Story 8b)
 # ---------------------------------------------------------------------------
