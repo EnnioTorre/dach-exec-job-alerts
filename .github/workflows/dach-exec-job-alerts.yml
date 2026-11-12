@@ -258,7 +258,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # ------------------------------------------------------------------
-      # Stage 5: create GitHub issue (always runs)
+      # Stage 5: create GitHub issue
+      #   No `if: always()` — if the authoritative re-rank fails (e.g. a
+      #   geolocation outage, ADR-0002), this step is skipped and no digest
+      #   ships. Do NOT add `if: always()` here (it would reopen the BAC-7 gap).
       # ------------------------------------------------------------------
       - name: Create digest issue
         run: python .github/scripts/create_issue.py
