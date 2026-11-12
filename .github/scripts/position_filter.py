@@ -30,6 +30,13 @@ _REQUIRED_LIST_FIELDS = (
     "individual_contributor_markers",
     "it_signal_terms",
     "generic_engineering_terms",
+    "junior_markers",
+    "commercial_terms",
+    "off_focus_roles",
+    "weak_body_terms",
+    "hardware_body_terms",
+    "it_industries",
+    "excluded_seniority",
 )
 # Full set of recognised top-level fields (lists + the search keyword object).
 _ALLOWED_FIELDS = frozenset(_REQUIRED_LIST_FIELDS + ("search_keyword_sets",))
@@ -71,9 +78,13 @@ def load_position_filter(path: str = POSITION_FILTER_CONFIG_PATH) -> dict:
     # Focus cross-check: every search set must target the role focus — carry no
     # excluded-area term and at least one in-focus role (case-insensitive
     # substring, matching runtime filtering). Keeps the searches aligned with the
-    # filter that judges their results (BAC-6).
+    # filter that judges their results (BAC-6). off_focus_roles (Data/AI, security)
+    # count as excluded here too, so a search set may not target them.
     in_focus_lc = [t.lower() for t in cfg["in_focus_roles"]]
-    excluded_lc = [t.lower() for t in cfg["excluded_areas"] + cfg["non_it_excluded"]]
+    excluded_lc = [
+        t.lower()
+        for t in cfg["excluded_areas"] + cfg["non_it_excluded"] + cfg["off_focus_roles"]
+    ]
     for name, query in sks.items():
         q = query.lower()
         bad = next((e for e in excluded_lc if e in q), None)
@@ -88,9 +99,14 @@ def load_position_filter(path: str = POSITION_FILTER_CONFIG_PATH) -> dict:
 
     # A term cannot be both in-focus and excluded — that is a contradiction the
     # maintainer must resolve. Compared case-insensitively, matching the
-    # case-insensitive filtering at runtime.
+    # case-insensitive filtering at runtime. off_focus_roles is an exclusion list,
+    # so an in-focus role may not also appear there (e.g. "head of data").
     in_focus = {t.lower() for t in cfg["in_focus_roles"]}
-    excluded = {t.lower() for t in cfg["excluded_areas"]} | {t.lower() for t in cfg["non_it_excluded"]}
+    excluded = (
+        {t.lower() for t in cfg["excluded_areas"]}
+        | {t.lower() for t in cfg["non_it_excluded"]}
+        | {t.lower() for t in cfg["off_focus_roles"]}
+    )
     overlap = sorted(in_focus & excluded)
     if overlap:
         raise ValueError(
