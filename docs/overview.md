@@ -74,6 +74,7 @@ Grouped by pipeline stage (there are no bounded contexts in the DDD sense — th
 | Entry point | Starts | Notes |
 |---|---|---|
 | [.github/workflows/dach-exec-job-alerts.yml](../.github/workflows/dach-exec-job-alerts.yml) | The full daily pipeline | cron `7 4 * * *` (≈06:07 CEST) + `workflow_dispatch` |
+| [.github/workflows/copilot-cli-probe.yml](../.github/workflows/copilot-cli-probe.yml) | Manual Copilot CLI probe (spike for the AI-stage migration): error signals, JSON reliability, model, usage → step summary + `copilot-probe-results` artifact | `workflow_dispatch` only (inputs `model`, `node_version`, `repeats`); spends Copilot requests |
 | `python .github/scripts/scrape_jobs.py` | Local scrape → `/tmp/jobs/jobs_raw.json` | `main()` at line 2160 |
 | `python .github/scripts/rank_jobs.py` | Local rank → `/tmp/jobs/jobs_ranked.json` | `main()` at line 637 |
 | `python .github/scripts/create_issue.py` | Publish digest (needs `gh`) | `main()` at line 258 |
