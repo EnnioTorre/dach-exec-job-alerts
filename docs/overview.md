@@ -31,9 +31,10 @@ during a run; the only persisted output is a GitHub issue.
 ```mermaid
 flowchart LR
     CFG[sources.json<br/>source registry] --> SCRAPE
-    SCRAPE[scrape_jobs.py<br/>Stage 1] -->|jobs_raw.json| AIPRE[ai_pre_rank_enrich.py<br/>Stage 1b · optional]
+    SCRAPE[scrape_jobs.py<br/>Stage 1] -->|jobs_raw.json| POOL[pool_jobs.py<br/>Stage 1a · score+pool]
+    POOL -->|jobs_pool.json| AIPRE[ai_pre_rank_enrich.py<br/>Stage 1b · optional]
     AIPRE -->|jobs_raw_ai.json| RANK
-    SCRAPE -->|jobs_raw.json| RANK[rank_jobs.py<br/>Stage 2]
+    POOL -->|jobs_pool.json| RANK[rank_jobs.py<br/>Stage 2]
     RANK -->|jobs_ranked.json| VALIDATE[test_scraper_loop.py<br/>Stage 2b]
     VALIDATE --> SUGGEST[ai_suggest_sources.py<br/>Stage 3a · optional]
     SUGGEST -->|extra_sources.json| EXTRA[scrape_extra.py<br/>Stage 3b · optional]
