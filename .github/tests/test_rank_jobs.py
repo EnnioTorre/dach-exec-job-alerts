@@ -223,8 +223,10 @@ class TestTitleExclusionGate:
 
     def test_commercial_title_excluded_despite_software(self):
         # BAC-2: commercial titles are excluded even with software/cloud/saas.
+        # Each reaches the gate (no excluded_areas substring) and would pass
+        # without it (management + IT signal), so the gate is what excludes them.
         for title in ("Business Development Manager Software", "Account Manager SaaS",
-                      "Pre-Sales Manager Cloud"):
+                      "Partner Manager Cloud"):
             job = {"title": title, "application_url": "https://acme.com/jobs/123",
                    "company": "Acme Software GmbH"}
             assert rank_jobs.is_relevant(job) is False, title
@@ -237,16 +239,20 @@ class TestTitleExclusionGate:
             assert rank_jobs.is_relevant(job) is False, title
 
     def test_shortfall_fill_applies_same_exclusions(self):
-        # BAC-11: the relaxed shortfall fill applies the identical gate.
-        for title in ("Junior IT Project Manager", "Business Development Manager Software",
+        # BAC-11: the relaxed shortfall fill applies the identical gate. Each title
+        # passes the relaxed predicate (mgmt + domain + IT signal) and is excluded
+        # only by the gate.
+        for title in ("Junior Software Engineering Manager", "Business Development Manager Software",
                       "Head of Data & AI"):
             job = {"title": title, "source_url": "https://acme.io/jobs/1",
                    "company": "Acme Software GmbH"}
             assert rank_jobs.is_relevant_relaxed(job) is False, title
 
     def test_off_focus_data_ai_security_excluded(self):
-        # BAC-16: off-focus Data/AI and IT-security leadership is excluded.
-        for title in ("IT Security & Compliance Manager", "Head of Data & AI", "CISO"):
+        # BAC-16: off-focus Data/AI and IT-security leadership is excluded. Each
+        # reaches the gate and would pass without it (management + the "it" signal),
+        # so the gate is what excludes them.
+        for title in ("IT Security & Compliance Manager", "Head of Data & AI", "Head of IT Security"):
             job = {"title": title, "application_url": "https://acme.com/jobs/123",
                    "company": "Acme Software GmbH"}
             assert rank_jobs.is_relevant(job) is False, title
@@ -269,6 +275,15 @@ class TestTitleExclusionGate:
         job = {"title": "Software Engineering Manager - Data Plane",
                "application_url": "https://acme.com/jobs/123"}
         assert rank_jobs.is_relevant(job) is True
+
+    def test_head_of_data_platform_excluded_accepted_tradeoff(self):
+        # Accepted trade-off (precision over recall): the `head of data` off-focus
+        # phrase prefix-matches "Head of Data Platform", so this data-platform
+        # leadership title is excluded even though `data platform` is an in-focus
+        # domain term. Pinned so any future change to keep it is a conscious one.
+        job = {"title": "Head of Data Platform", "application_url": "https://acme.com/jobs/123",
+               "company": "Acme Software GmbH"}
+        assert rank_jobs.is_relevant(job) is False
 
 
 # ---------------------------------------------------------------------------
