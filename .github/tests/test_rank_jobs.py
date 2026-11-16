@@ -518,13 +518,24 @@ class TestSeniorityIndustryConfirmation:
 
     def test_ambiguous_title_at_non_it_industry_excluded(self):
         # BAC-27 (accepted trade-off): Almedia-style strong body but non-IT
-        # industry → excluded; a non-IT media industry is not mistaken for IT,
-        # and a missing criteria block leaves the title unconfirmed.
+        # industry → excluded; a non-IT media industry is not mistaken for IT.
         for industries in ("Advertising Services",
-                           "Broadcast Media Production and Distribution", ""):
+                           "Broadcast Media Production and Distribution"):
             row = self._row(industries=industries,
                             body_text="Lead our backend and frontend engineering teams.")
             assert rank_jobs.is_relevant(row) is False, industries
+
+    def test_missing_industry_falls_back_to_strong_body_rule(self):
+        # Production 15-Nov: no LinkedIn row had industries captured, and requiring
+        # one dropped every ambiguous LinkedIn title. Without an industry, a strong
+        # body term confirms (Story 3 rule); generic words still do not.
+        for industries in ("", "   ", None):
+            strong = self._row(industries=industries,
+                               body_text="Lead our backend and frontend engineering teams.")
+            assert rank_jobs.is_relevant(strong) is True, repr(industries)
+            weak = self._row(industries=industries,
+                             body_text="We drive technology and digital transformation.")
+            assert rank_jobs.is_relevant(weak) is False, repr(industries)
 
     def test_tech_leadership_eligible_regardless_of_industry(self):
         # BAC-4: CTO / IoT technology leadership at an industrial employer stay eligible.

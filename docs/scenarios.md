@@ -96,7 +96,7 @@ legacy `Scraped / Unique / Shortlist / Top-15 / Yield` table.
 | Reject search/listing URLs & non-job titles | `BAD_URL_PATTERNS` / `NON_JOB_TITLE_PATTERNS` in rank_jobs.py |
 | Require an explicit IT signal | `_has_it_signal` in rank_jobs.py |
 | Exclude LinkedIn Entry level / Internship postings (whatever the title) | `_seniority_excluded` in rank_jobs.py over `excluded_seniority` (both gates) |
-| Confirm an ambiguous LinkedIn title only with an IT industry AND a strong body term | `_has_linkedin_it_context` + `_has_it_industry` in rank_jobs.py over `it_industries` (a title IT signal still wins over any industry) |
+| Confirm an ambiguous LinkedIn title with a strong body term AND, when LinkedIn industries were captured, an IT industry | `_has_linkedin_it_context` + `_has_it_industry` in rank_jobs.py over `it_industries` (no industry captured → strong body term alone; a title IT signal still wins over any industry) |
 | URL must match the source platform domain | `_source_domain_ok` in rank_jobs.py |
 | Relax filter to reach `RANK_TARGET_COUNT` | `is_relevant_relaxed` in rank_jobs.py |
 

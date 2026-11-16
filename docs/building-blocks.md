@@ -64,14 +64,14 @@ Grouped by pipeline capability. Line numbers are approximate anchors into the so
 | Symbol | File | Responsibility | Key signature |
 |---|---|---|---|
 | `main` | rank_jobs.py | Orchestrate filter→dedup→score→diversify→cap→write | `() -> None` |
-| `is_relevant` | rank_jobs.py | Strict relevance gate (role + IT signal + domain); excludes LinkedIn Entry level / Internship rows; confirms an ambiguous LinkedIn title only with an IT industry AND a strong body term | `(job) -> bool` |
+| `is_relevant` | rank_jobs.py | Strict relevance gate (role + IT signal + domain); excludes LinkedIn Entry level / Internship rows; confirms an ambiguous LinkedIn title with a strong body term plus, when captured, an IT industry | `(job) -> bool` |
 | `is_relevant_relaxed` | rank_jobs.py | Looser gate to backfill to target count | `(job) -> bool` |
 | `_hard_reject_common` | rank_jobs.py | Shared hard-reject (bad URL/title/AI reject) | `(job) -> bool` |
 | `_has_it_signal` | rank_jobs.py | Require IT keyword in title/company | `(job) -> bool` |
 | `_title_excluded` | rank_jobs.py | Exclude junior / commercial / off-focus titles (shared by both gates) | `(title) -> bool` |
 | `_strong_it_terms` | rank_jobs.py | Strong IT terms = `it_signal_terms` − `weak_body_terms`; a weak word alone never confirms a body | `() -> list[str]` |
 | `_hardware_dominated` | rank_jobs.py | Exclude a body naming more hardware than software: H=distinct `hardware_body_terms`, S=distinct strong terms, excluded when `H≥1 and S≤2·H`; skipped for a strong-software or CTO title (Story 4) | `(job) -> bool` |
-| `_has_linkedin_it_context` | rank_jobs.py | Confirm an ambiguous LinkedIn row only when its LinkedIn `industries` names an IT industry **and** its retained `body_text` carries a **strong** IT term (Stories 3/7) | `(job) -> bool` |
+| `_has_linkedin_it_context` | rank_jobs.py | Confirm an ambiguous LinkedIn row when its retained `body_text` carries a **strong** IT term and, if LinkedIn `industries` were captured, one is an IT industry (Stories 3/7; no industry → body rule alone) | `(job) -> bool` |
 | `_has_it_industry` | rank_jobs.py | Case-insensitive substring match of `it_industries` in the row's LinkedIn `industries` string | `(job) -> bool` |
 | `_seniority_excluded` | rank_jobs.py | Exclude LinkedIn `seniority` in `excluded_seniority` (Entry level / Internship), in both gates | `(job) -> bool` |
 | `_source_domain_ok` | rank_jobs.py | URL must match source platform domain | `(job) -> bool` |
