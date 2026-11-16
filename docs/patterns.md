@@ -108,6 +108,9 @@ req/50s); SearXNG has an extra 5s global spacing. Prefer provider sources over d
 One reactive exception: LinkedIn throttles shared runner IPs in bursts, so a LinkedIn 429 gets one
 backoff retry, and after `SCRAPER_LINKEDIN_429_BREAKER` consecutive 429s the run stops backing off
 and skips the remaining posting fetches (count logged as `LinkedIn posting fetches: …`).
+A second one: when every attempt of a multi-attempt fetch times out, the host brand (e.g. `stepstone`
+for `.at` and `.de`) is skipped for the rest of the run (`_TIMED_OUT_HOSTS`), so a host that blocks
+the runner IP costs one source's timeouts instead of every source's.
 
 ## URL normalization convention
 
