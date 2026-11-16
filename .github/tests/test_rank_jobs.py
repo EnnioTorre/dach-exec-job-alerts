@@ -312,7 +312,7 @@ class TestLinkedinItContext:
     def _ambiguous_linkedin_row(self, **extra) -> dict:
         # Leadership title, non-IT company name → passes the role gates but fails
         # the title/company IT signal; only the body can confirm it. An IT industry
-        # is set so the body is what decides (Story 7 also requires it).
+        # is set so the body is what decides (Story 7 checks it when captured).
         row = {
             "title": "Head of Engineering",
             "company": "ENPULSION",
@@ -471,8 +471,9 @@ class TestHardwareDominance:
 
 class TestSeniorityIndustryConfirmation:
     """it-role-classification Story 7 (BAC-4/6/18/19/20/27): LinkedIn seniority
-    excludes entry-level/internship rows; an ambiguous LinkedIn title needs an IT
-    industry AND a strong body term; a title IT signal wins over any industry."""
+    excludes entry-level/internship rows; an ambiguous LinkedIn title needs a
+    strong body term, plus an IT industry when one was captured; a title IT
+    signal wins over any industry."""
 
     _STRONG_BODY = "You will lead our software platform, cloud and backend teams."
 
@@ -536,6 +537,20 @@ class TestSeniorityIndustryConfirmation:
             weak = self._row(industries=industries,
                              body_text="We drive technology and digital transformation.")
             assert rank_jobs.is_relevant(weak) is False, repr(industries)
+
+    def test_missing_industry_hardware_body_still_excluded(self):
+        # The empty-industry path must not bypass the Story 4 hardware rule:
+        # H=2 (RF, UHF), S=1 (software) → excluded.
+        row = self._row(industries="",
+                        body_text="Design RF and UHF front-ends; some software tools support the lab.")
+        assert rank_jobs.is_relevant(row) is False
+
+    def test_missing_industry_non_linkedin_row_not_confirmed(self):
+        # The body fallback is LinkedIn-only: a non-LinkedIn ambiguous row with no
+        # industry and a strong body stays excluded.
+        row = self._row(application_url="https://acme.com/jobs/9", source_name="karriere_at_cto",
+                        industries="", body_text=self._STRONG_BODY)
+        assert rank_jobs.is_relevant(row) is False
 
     def test_tech_leadership_eligible_regardless_of_industry(self):
         # BAC-4: CTO / IoT technology leadership at an industrial employer stay eligible.

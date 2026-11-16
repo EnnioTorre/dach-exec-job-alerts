@@ -159,7 +159,7 @@ def _has_linkedin_it_context(job: dict) -> bool:
         return False
     if not _contains_any(body, _strong_it_terms()):
         return False
-    # No criteria captured (parser miss, skipped fetch): fall back to the body rule.
+    # Page fetched but no criteria parsed: fall back to the body rule.
     if not (job.get("industries") or "").strip():
         return True
     return _has_it_industry(job)
@@ -267,8 +267,8 @@ def is_relevant(job: dict) -> bool:
     if _has_it_signal(job):
         return True
     # Ambiguous LinkedIn leadership title: the guest card hides the body, so a
-    # real IT role looks generic. Confirm only with an IT industry AND a strong
-    # body term (Stories 3/7).
+    # real IT role looks generic. Confirm with a strong body term, plus an IT
+    # industry when one was captured (Stories 3/7).
     return _has_linkedin_it_context(job)
 
 
