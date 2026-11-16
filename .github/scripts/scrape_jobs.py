@@ -453,6 +453,11 @@ def _linkedin_429_blocked() -> bool:
     return _linkedin_429_streak >= int(os.getenv("SCRAPER_LINKEDIN_429_BREAKER", "5"))
 
 
+# Host brands (e.g. "stepstone" for .at and .de) where a multi-attempt fetch timed out on
+# every attempt: the host blocks this runner IP, so later fetches are skipped for the run.
+_TIMED_OUT_HOSTS: set[str] = set()
+
+
 def fetch(url: str, retries: int = 3, accept_language: str | None = None) -> str | None:
     """
     HTTP GET with pre-emptive rate limiting (token bucket).
@@ -467,6 +472,11 @@ def fetch(url: str, retries: int = 3, accept_language: str | None = None) -> str
     """
     global _linkedin_429_streak, _linkedin_429_retries
     fam = _domain_family(url)
+    brand = fam.split(".")[0]
+    if brand in _TIMED_OUT_HOSTS:
+        print(f"  Skipping {url}: {brand} timed out on every attempt earlier this run")
+        return None
+    timeouts = 0
     limiter = _get_rate_limiter(fam)
 
     # APPLY RATE LIMIT: wait if necessary, then consume 1 token
@@ -546,7 +556,12 @@ def fetch(url: str, retries: int = 3, accept_language: str | None = None) -> str
             time.sleep(2)
         except requests.RequestException as exc:
             print(f"  Attempt {attempt + 1} failed: {exc}")
+            if isinstance(exc, requests.Timeout):
+                timeouts += 1
             time.sleep(3)
+    if retries >= 2 and timeouts == retries:
+        _TIMED_OUT_HOSTS.add(brand)
+        print(f"  {brand}: all {retries} attempts timed out; skipping its remaining fetches this run")
     return None
 
 

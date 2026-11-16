@@ -544,6 +544,47 @@ class TestExpiredLinkedinDropped:
         assert scrape_jobs._LINKEDIN_EXPIRED_IDS == set()
 
 
+class TestTimedOutHostSkipped:
+    """13-16 Nov: Stepstone read-timed-out 3x25s per source on blocked runner IPs (~4 min/run)."""
+
+    @pytest.fixture(autouse=True)
+    def _reset(self, monkeypatch):
+        monkeypatch.setattr(scrape_jobs.time, "sleep", lambda s: None)
+        monkeypatch.setattr(scrape_jobs, "_polite_delay", lambda url: None)
+        monkeypatch.setattr(scrape_jobs, "_TIMED_OUT_HOSTS", set())
+
+    def _serve(self, monkeypatch, outcomes: list) -> list[str]:
+        calls: list[str] = []
+        queue = list(outcomes)
+
+        class _Session:
+            headers: dict = {}
+
+            def get(self, url, **_):
+                calls.append(url)
+                out = queue.pop(0)
+                if isinstance(out, Exception):
+                    raise out
+                return _StatusResp(out)
+
+        monkeypatch.setattr(scrape_jobs.requests, "Session", _Session)
+        return calls
+
+    def test_all_attempts_timed_out_skips_brand_across_tlds(self, monkeypatch):
+        calls = self._serve(monkeypatch, [scrape_jobs.requests.ReadTimeout()] * 3)
+        assert scrape_jobs.fetch("https://www.stepstone.at/jobs/cto") is None
+        assert scrape_jobs.fetch("https://www.stepstone.de/jobs/head-of-engineering") is None
+        assert len(calls) == 3                      # .de skipped without a request
+        assert scrape_jobs._TIMED_OUT_HOSTS == {"stepstone"}
+
+    def test_partial_timeouts_or_single_attempt_do_not_skip(self, monkeypatch):
+        self._serve(monkeypatch, [scrape_jobs.requests.ReadTimeout(), 403, scrape_jobs.requests.ReadTimeout(),
+                                  scrape_jobs.requests.ReadTimeout()])
+        scrape_jobs.fetch("https://www.stepstone.at/jobs/head-of-engineering", retries=3)
+        scrape_jobs.fetch("https://www.karriere.at/jobs/1", retries=1)
+        assert scrape_jobs._TIMED_OUT_HOSTS == set()
+
+
 # ---------------------------------------------------------------------------
 # _exponential_backoff_delay
 # ---------------------------------------------------------------------------
