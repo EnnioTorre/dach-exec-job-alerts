@@ -441,7 +441,7 @@ def _exponential_backoff_delay(attempt: int, base: float = 1.0, max_delay: float
     return delay + jitter
 
 
-def fetch(url: str, retries: int = 3) -> str | None:
+def fetch(url: str, retries: int = 3, accept_language: str | None = None) -> str | None:
     """
     HTTP GET with pre-emptive rate limiting (token bucket).
 
@@ -465,6 +465,8 @@ def fetch(url: str, retries: int = 3) -> str | None:
     session = requests.Session()
     headers = dict(_BASE_HEADERS)
     headers["User-Agent"] = random.choice(_USER_AGENTS)
+    if accept_language:
+        headers["Accept-Language"] = accept_language
     # Optional: reuse browser Google cookie to reduce consent/challenge walls.
     parsed_host = urlparse(url).netloc.lower()
     if "google." in parsed_host:
@@ -2126,7 +2128,9 @@ def _fetch_linkedin_job_language(job_id: str, budget: str = "lang") -> str | Non
         _linkedin_lang_enrich_used += 1
 
     url = f"https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{job_id}"
-    html = fetch(url, retries=1)
+    # English UI: the criteria parser and it_industries match English labels/values;
+    # de-AT returns "Karrierestufe"/"Branchen" and German industry names.
+    html = fetch(url, retries=1, accept_language="en-US,en;q=0.9")
     if not html:
         _LINKEDIN_LANG_CACHE[job_id] = ""  # remember the failed attempt
         _LINKEDIN_BODY_CACHE[job_id] = ""

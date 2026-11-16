@@ -778,7 +778,7 @@ class TestLinkedinBodyRetention:
         # An English title (no (m/w/d) marker) triggers the bounded guest-body
         # fetch; the row must carry the fetched description text.
         body = "We seek a Head of Engineering to lead our Kubernetes platform team."
-        monkeypatch.setattr(scrape_jobs, "fetch", lambda url, retries=1: _guest_body(body))
+        monkeypatch.setattr(scrape_jobs, "fetch", lambda url, retries=1, **_: _guest_body(body))
         html = _guest_card("12345", "Head of Engineering")
         jobs = scrape_jobs.parse_linkedin_guest_api(html, "linkedin_at")
         assert len(jobs) == 1
@@ -790,7 +790,7 @@ class TestLinkedinBodyRetention:
         monkeypatch.setenv("SCRAPER_LINKEDIN_LANG_ENRICH_MAX", "1")
         calls: list[str] = []
 
-        def fake_fetch(url, retries=1):
+        def fake_fetch(url, retries=1, **_):
             calls.append(url)
             return _guest_body("Lead the cloud platform team.")
 
@@ -836,7 +836,7 @@ class TestLinkedinCriteriaCapture:
         page = _guest_body("Lead our cloud platform team.") + _guest_criteria(
             "Mid-Senior level", "Software Development"
         )
-        monkeypatch.setattr(scrape_jobs, "fetch", lambda url, retries=1: page)
+        monkeypatch.setattr(scrape_jobs, "fetch", lambda url, retries=1, **_: page)
         html = _guest_card("12345", "Head of Engineering")
         jobs = scrape_jobs.parse_linkedin_guest_api(html, "linkedin_at")
         assert len(jobs) == 1
@@ -848,7 +848,7 @@ class TestLinkedinCriteriaCapture:
         # A page with no criteria block yields empty seniority/industries and
         # does not raise (parsers-never-raise); the body is still captured.
         monkeypatch.setattr(
-            scrape_jobs, "fetch", lambda url, retries=1: _guest_body("Own the backend platform.")
+            scrape_jobs, "fetch", lambda url, retries=1, **_: _guest_body("Own the backend platform.")
         )
         html = _guest_card("67890", "VP Engineering")
         jobs = scrape_jobs.parse_linkedin_guest_api(html, "linkedin_at")
@@ -856,6 +856,28 @@ class TestLinkedinCriteriaCapture:
         assert jobs[0]["seniority"] == ""
         assert jobs[0]["industries"] == ""
         assert jobs[0]["body_text"] == "Own the backend platform."
+
+    def test_posting_fetch_requests_english_criteria(self, monkeypatch):
+        # Production 15-Nov: the scraper-wide de-AT header made LinkedIn return
+        # German labels/values, so no row got criteria. The posting fetch must ask
+        # for English, and a German-labelled page must stay unparsed (not mistaken
+        # for an English non-IT industry).
+        german = (
+            '<li class="description__job-criteria-item">'
+            '<h3 class="description__job-criteria-subheader">Branchen</h3>'
+            '<span class="description__job-criteria-text">IT-Dienstleistungen und IT-Beratung</span></li>'
+        )
+        english = _guest_criteria("Not Applicable", "IT Services and IT Consulting")
+
+        def fake_fetch(url, retries=1, accept_language=None):
+            return _guest_body("Own the platform.") + (
+                english if (accept_language or "").startswith("en") else german
+            )
+
+        monkeypatch.setattr(scrape_jobs, "fetch", fake_fetch)
+        jobs = scrape_jobs.parse_linkedin_guest_api(_guest_card("4242", "VP Engineering"), "linkedin_at")
+        assert jobs[0]["industries"] == "IT Services and IT Consulting"
+        assert jobs[0]["seniority"] == "Not Applicable"
 
 
 # ---------------------------------------------------------------------------
@@ -879,7 +901,7 @@ class TestGermanTitlePostingFetch:
         page = _guest_body("Leite unser Cloud-Plattform-Team.") + _guest_criteria(
             "Mid-Senior level", "IT Services and IT Consulting"
         )
-        monkeypatch.setattr(scrape_jobs, "fetch", lambda url, retries=1: page)
+        monkeypatch.setattr(scrape_jobs, "fetch", lambda url, retries=1, **_: page)
         html = _guest_card("12345", "Leiter Softwareentwicklung (m/w/d)")
         jobs = scrape_jobs.parse_linkedin_guest_api(html, "linkedin_at")
         assert len(jobs) == 1
@@ -894,7 +916,7 @@ class TestGermanTitlePostingFetch:
         monkeypatch.setenv("SCRAPER_LINKEDIN_CLASSIFY_MAX", "1")
         calls: list[str] = []
 
-        def fake_fetch(url, retries=1):
+        def fake_fetch(url, retries=1, **_):
             calls.append(url)
             return _guest_body("Cloud-Plattform.") + _guest_criteria("Director", "Software Development")
 
@@ -911,7 +933,7 @@ class TestGermanTitlePostingFetch:
     def test_german_title_fetch_failure_keeps_title_only(self, monkeypatch):
         # A failed fetch leaves the German-titled row title-only (empty body /
         # criteria, lang marker kept) and does not raise.
-        monkeypatch.setattr(scrape_jobs, "fetch", lambda url, retries=1: "")
+        monkeypatch.setattr(scrape_jobs, "fetch", lambda url, retries=1, **_: "")
         html = _guest_card("99999", "Technischer Leiter (m/w/d)")
         jobs = scrape_jobs.parse_linkedin_guest_api(html, "linkedin_at")
         assert len(jobs) == 1
