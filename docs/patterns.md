@@ -105,6 +105,9 @@ order (`detect_job_language()` L1572):
 Every outbound request passes through a per-domain `TokenBucket` (L301) keyed by `_domain_family`
 (L428), configured in `_RATE_LIMIT_CONFIG` (L383). Google is throttled hardest (~0.02 req/s ≈ 1
 req/50s); SearXNG has an extra 5s global spacing. Prefer provider sources over direct Google.
+One reactive exception: LinkedIn throttles shared runner IPs in bursts, so a LinkedIn 429 gets one
+backoff retry, and after `SCRAPER_LINKEDIN_429_BREAKER` consecutive 429s the run stops backing off
+and skips the remaining posting fetches (count logged as `LinkedIn posting fetches: …`).
 
 ## URL normalization convention
 

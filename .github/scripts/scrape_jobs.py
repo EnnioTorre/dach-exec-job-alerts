@@ -237,6 +237,11 @@ _linkedin_lang_enrich_used = 0
 # Separate per-run budget for the German-titled posting fetch (Story 6), so it
 # does not consume the language-enrichment budget (shared.md: own knob per stage).
 _linkedin_classify_used = 0
+# Consecutive LinkedIn 429s that survived the one backoff retry; any other LinkedIn status resets it.
+_linkedin_429_streak = 0
+_linkedin_429_retries = 0
+_linkedin_posting_failed = 0
+_linkedin_posting_skipped = 0
 
 # Generic job-page language enrichment for German-market boards (Stepstone,
 # karriere.at). Their listing cards only expose a title; many roles carry an
@@ -441,6 +446,10 @@ def _exponential_backoff_delay(attempt: int, base: float = 1.0, max_delay: float
     return delay + jitter
 
 
+def _linkedin_429_blocked() -> bool:
+    return _linkedin_429_streak >= int(os.getenv("SCRAPER_LINKEDIN_429_BREAKER", "5"))
+
+
 def fetch(url: str, retries: int = 3, accept_language: str | None = None) -> str | None:
     """
     HTTP GET with pre-emptive rate limiting (token bucket).
@@ -453,6 +462,7 @@ def fetch(url: str, retries: int = 3, accept_language: str | None = None) -> str
     (tokens/second). Each request consumes 1 token. If no tokens available,
     we wait until one is assigned. Prevents exceeding server rate limits.
     """
+    global _linkedin_429_streak, _linkedin_429_retries
     fam = _domain_family(url)
     limiter = _get_rate_limiter(fam)
 
@@ -481,12 +491,22 @@ def fetch(url: str, retries: int = 3, accept_language: str | None = None) -> str
         _polite_delay(url)
         try:
             r = session.get(url, timeout=25, allow_redirects=True, verify=verify_opt)
+            # LinkedIn throttles shared runner IPs in bursts: back off once, unless already blocked.
+            if (r.status_code == 429 and fam == "linkedin.com" and not _linkedin_429_blocked()
+                    and _linkedin_429_retries < int(os.getenv("SCRAPER_LINKEDIN_429_RETRY_MAX", "10"))):
+                _linkedin_429_retries += 1
+                wait = min(_parse_retry_after(r) or float(os.getenv("SCRAPER_LINKEDIN_429_BACKOFF", "20")), 60)
+                print(f"  HTTP 429 for {url}; backing off {wait:.0f}s, one retry")
+                time.sleep(wait)
+                r = session.get(url, timeout=25, allow_redirects=True, verify=verify_opt)
+            if fam == "linkedin.com":
+                _linkedin_429_streak = _linkedin_429_streak + 1 if r.status_code == 429 else 0
             if r.status_code == 200:
                 return r.text
             print(f"  HTTP {r.status_code} for {url}")
             # With pre-emptive rate limiting, 429 should be extremely rare.
             # If we do get one, it's likely a different rate limit (per-IP, per-API-key, etc.)
-            # Log it for debugging but don't retry (rate limiter did its job).
+            # Log it for debugging but don't retry again (LinkedIn already backed off once above).
             if r.status_code == 429:
                 print(f"  ⚠️  Unexpected 429 despite rate limiting. Possible per-IP limit on {fam}.")
                 return None
@@ -2113,6 +2133,10 @@ def _fetch_linkedin_job_language(job_id: str, budget: str = "lang") -> str | Non
     _LINKEDIN_CRITERIA_CACHE.setdefault(job_id, {"seniority": "", "industries": ""})
 
     global _linkedin_lang_enrich_used, _linkedin_classify_used
+    global _linkedin_posting_failed, _linkedin_posting_skipped
+    if _linkedin_429_blocked():
+        _linkedin_posting_skipped += 1
+        return None
     if budget == "classify":
         cap = int(os.getenv(
             "SCRAPER_LINKEDIN_CLASSIFY_MAX",
@@ -2132,6 +2156,7 @@ def _fetch_linkedin_job_language(job_id: str, budget: str = "lang") -> str | Non
     # de-AT returns "Karrierestufe"/"Branchen" and German industry names.
     html = fetch(url, retries=1, accept_language="en-US,en;q=0.9")
     if not html:
+        _linkedin_posting_failed += 1
         _LINKEDIN_LANG_CACHE[job_id] = ""  # remember the failed attempt
         _LINKEDIN_BODY_CACHE[job_id] = ""
         _LINKEDIN_CRITERIA_CACHE[job_id] = {"seniority": "", "industries": ""}
@@ -2486,6 +2511,10 @@ def main() -> None:
 
     print(f"\nTotal raw: {len(all_jobs)} across {len(SOURCES)} sources")
     print(f"Stats: {stats}")
+    print(
+        f"LinkedIn posting fetches: {_linkedin_lang_enrich_used + _linkedin_classify_used} attempted, "
+        f"{_linkedin_posting_failed} failed, {_linkedin_posting_skipped} skipped (429 breaker)"
+    )
 
     if fail_on_fetch_error and failed_fetch_sources:
         print(
