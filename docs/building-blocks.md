@@ -20,7 +20,7 @@ Grouped by pipeline capability. Line numbers are approximate anchors into the so
 
 | Symbol | File:line | Responsibility | Key signature | Depends on |
 |---|---|---|---|---|
-| `fetch` | scrape_jobs.py:467 | HTTP GET with pre-emptive rate limiting; returns `None` on error/429 | `(url, ...) -> str \| None` | `TokenBucket`, `_ssl_verify_option` |
+| `fetch` | scrape_jobs.py:467 | HTTP GET with pre-emptive rate limiting; returns `None` on error/429 (LinkedIn 429: one backoff retry, then breaker) | `(url, ...) -> str \| None` | `TokenBucket`, `_ssl_verify_option` |
 | `TokenBucket` | scrape_jobs.py:301 | Pre-emptive per-domain rate limiter (prevents 429s) | `.consume(tokens) -> float` | — |
 | `_RATE_LIMIT_CONFIG` | scrape_jobs.py:383 | Per-domain refill rates (google 0.02 … default 0.5) | const dict | — |
 | `_domain_family` | scrape_jobs.py:428 | Canonical domain key for limiter selection | `(url) -> str` | — |

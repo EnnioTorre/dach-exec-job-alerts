@@ -431,6 +431,84 @@ class TestParseRetryAfter:
 
 
 # ---------------------------------------------------------------------------
+# LinkedIn 429 backoff + breaker (16-Nov runs: 26-42 LinkedIn 429s per run)
+# ---------------------------------------------------------------------------
+
+class _StatusResp:
+    def __init__(self, status: int, text: str = "ok"):
+        self.status_code = status
+        self.text = text
+        self.headers: dict[str, str] = {}
+
+
+class TestLinkedin429Backoff:
+    @pytest.fixture(autouse=True)
+    def _reset(self, monkeypatch):
+        self.sleeps: list[float] = []
+        monkeypatch.setattr(scrape_jobs.time, "sleep", self.sleeps.append)
+        monkeypatch.setattr(scrape_jobs, "_polite_delay", lambda url: None)
+        monkeypatch.setattr(scrape_jobs, "_linkedin_429_streak", 0)
+        monkeypatch.setattr(scrape_jobs, "_linkedin_429_retries", 0)
+        monkeypatch.setattr(scrape_jobs, "_linkedin_posting_skipped", 0)
+        monkeypatch.setattr(scrape_jobs, "_linkedin_lang_enrich_used", 0)
+        scrape_jobs._LINKEDIN_LANG_CACHE.clear()
+        monkeypatch.setenv("SCRAPER_LINKEDIN_429_BACKOFF", "20")
+
+    def _serve(self, monkeypatch, statuses: list[int]) -> list[str]:
+        calls: list[str] = []
+        queue = list(statuses)
+
+        class _Session:
+            headers: dict = {}
+
+            def get(self, url, **_):
+                calls.append(url)
+                return _StatusResp(queue.pop(0))
+
+        monkeypatch.setattr(scrape_jobs.requests, "Session", _Session)
+        return calls
+
+    def test_linkedin_429_backs_off_once_and_retries(self, monkeypatch):
+        calls = self._serve(monkeypatch, [429, 200])
+        assert scrape_jobs.fetch("https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/1", retries=1) == "ok"
+        assert len(calls) == 2
+        assert 20 in self.sleeps
+        assert scrape_jobs._linkedin_429_streak == 0
+
+    def test_non_linkedin_429_not_retried(self, monkeypatch):
+        calls = self._serve(monkeypatch, [429, 200])
+        assert scrape_jobs.fetch("https://www.stepstone.at/jobs/1", retries=1) is None
+        assert len(calls) == 1
+
+    def test_breaker_stops_backoff_and_posting_fetches(self, monkeypatch):
+        # After N consecutive post-retry 429s: no more backoff waits, and posting
+        # fetches are skipped without a request or budget use.
+        monkeypatch.setenv("SCRAPER_LINKEDIN_429_BREAKER", "2")
+        calls = self._serve(monkeypatch, [429] * 4 + [429])
+        url = "https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{}"
+        assert scrape_jobs.fetch(url.format(1), retries=1) is None
+        assert scrape_jobs.fetch(url.format(2), retries=1) is None
+        assert scrape_jobs._linkedin_429_streak == 2
+        assert scrape_jobs.fetch(url.format(3), retries=1) is None
+        assert len(calls) == 5                      # 2x(429+retry) + 1 without retry
+        assert self.sleeps.count(20) == 2
+        assert scrape_jobs._fetch_linkedin_job_language("4") is None
+        assert len(calls) == 5                      # skipped: no request
+        assert scrape_jobs._linkedin_posting_skipped == 1
+        assert scrape_jobs._linkedin_lang_enrich_used == 0
+
+    def test_backoff_retries_capped_per_run(self, monkeypatch):
+        # Retries that succeed reset the streak, so the per-run cap is what bounds runtime.
+        monkeypatch.setenv("SCRAPER_LINKEDIN_429_RETRY_MAX", "1")
+        calls = self._serve(monkeypatch, [429, 200, 429])
+        url = "https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{}"
+        assert scrape_jobs.fetch(url.format(1), retries=1) == "ok"
+        assert scrape_jobs.fetch(url.format(2), retries=1) is None
+        assert len(calls) == 3
+        assert self.sleeps.count(20) == 1
+
+
+# ---------------------------------------------------------------------------
 # _exponential_backoff_delay
 # ---------------------------------------------------------------------------
 
