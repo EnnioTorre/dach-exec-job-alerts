@@ -508,6 +508,42 @@ class TestLinkedin429Backoff:
         assert self.sleeps.count(20) == 1
 
 
+class TestExpiredLinkedinDropped:
+    """16-Nov: expired SERP postings (e.g. MOSTLY AI 3844015611) logged 404 but stayed ranked."""
+
+    @pytest.fixture(autouse=True)
+    def _reset(self, monkeypatch):
+        monkeypatch.setattr(scrape_jobs.time, "sleep", lambda s: None)
+        monkeypatch.setattr(scrape_jobs, "_polite_delay", lambda url: None)
+        monkeypatch.setattr(scrape_jobs, "_linkedin_429_streak", 0)
+        monkeypatch.setattr(scrape_jobs, "_LINKEDIN_EXPIRED_IDS", set())
+
+    _serve = TestLinkedin429Backoff._serve
+
+    def test_404_on_slug_url_drops_every_copy(self, monkeypatch):
+        self._serve(monkeypatch, [404])
+        slug = "https://at.linkedin.com/jobs/view/head-of-software-engineering-at-mostly-ai-3844015611"
+        assert scrape_jobs.fetch(slug, retries=1) is None
+        rows = [
+            {"application_url": slug},
+            {"application_url": "https://www.linkedin.com/jobs/view/3844015611/"},
+            {"application_url": "https://www.linkedin.com/jobs/view/4489479379/"},
+            {"application_url": "https://www.karriere.at/jobs/3844015611"},
+        ]
+        kept = scrape_jobs._drop_expired_linkedin(rows)
+        assert [r["application_url"] for r in kept] == [
+            "https://www.linkedin.com/jobs/view/4489479379/",
+            "https://www.karriere.at/jobs/3844015611",
+        ]
+
+    def test_429_and_non_linkedin_404_do_not_expire(self, monkeypatch):
+        monkeypatch.setenv("SCRAPER_LINKEDIN_429_RETRY_MAX", "0")
+        self._serve(monkeypatch, [429, 404])
+        scrape_jobs.fetch("https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/1234567", retries=1)
+        scrape_jobs.fetch("https://www.stepstone.at/jobs/view/7654321", retries=1)
+        assert scrape_jobs._LINKEDIN_EXPIRED_IDS == set()
+
+
 # ---------------------------------------------------------------------------
 # _exponential_backoff_delay
 # ---------------------------------------------------------------------------

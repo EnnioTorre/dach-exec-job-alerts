@@ -233,6 +233,9 @@ _LINKEDIN_BODY_CACHE: dict[str, str] = {}
 # per job id (transient; consumed by the ranker's seniority/industry rules in
 # Story 7, never persisted to the digest).
 _LINKEDIN_CRITERIA_CACHE: dict[str, dict[str, str]] = {}
+# LinkedIn job ids whose posting page returned 404 this run (expired/removed postings).
+_LINKEDIN_EXPIRED_IDS: set[str] = set()
+_LINKEDIN_JOB_ID_RE = re.compile(r"linkedin\.com/jobs(?:-guest/jobs/api/jobPosting|/view)/(?:[^/?#]*-)?(\d{6,})", re.I)
 _linkedin_lang_enrich_used = 0
 # Separate per-run budget for the German-titled posting fetch (Story 6), so it
 # does not consume the language-enrichment budget (shared.md: own knob per stage).
@@ -504,6 +507,10 @@ def fetch(url: str, retries: int = 3, accept_language: str | None = None) -> str
             if r.status_code == 200:
                 return r.text
             print(f"  HTTP {r.status_code} for {url}")
+            if r.status_code == 404 and fam == "linkedin.com":
+                m = _LINKEDIN_JOB_ID_RE.search(url)
+                if m:
+                    _LINKEDIN_EXPIRED_IDS.add(m.group(1))
             # With pre-emptive rate limiting, 429 should be extremely rare.
             # If we do get one, it's likely a different rate limit (per-IP, per-API-key, etc.)
             # Log it for debugging but don't retry again (LinkedIn already backed off once above).
@@ -2364,6 +2371,17 @@ def _count_by(jobs: list[dict], key_fn) -> dict[str, int]:
         counts[k] = counts.get(k, 0) + 1
     return counts
 
+def _drop_expired_linkedin(jobs: list[dict]) -> list[dict]:
+    """Drop rows (any source, e.g. SERP copies) whose LinkedIn job id returned 404 this run."""
+    def _expired(job: dict) -> bool:
+        m = _LINKEDIN_JOB_ID_RE.search(job.get("application_url") or "")
+        return bool(m and m.group(1) in _LINKEDIN_EXPIRED_IDS)
+    kept = [j for j in jobs if not _expired(j)]
+    if len(kept) < len(jobs):
+        print(f"Dropped {len(jobs) - len(kept)} expired LinkedIn postings (HTTP 404)")
+    return kept
+
+
 def main() -> None:
     os.makedirs("/tmp/jobs", exist_ok=True)
     all_jobs: list[dict] = []
@@ -2522,6 +2540,8 @@ def main() -> None:
             + ", ".join(failed_fetch_sources)
         )
         raise SystemExit(2)
+
+    all_jobs = _drop_expired_linkedin(all_jobs)
 
     # Deduplicate within each source family so different job boards can keep
     # distinct copies of the same role while local duplicates are collapsed.

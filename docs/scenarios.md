@@ -39,6 +39,7 @@ change checklists live in [data-flows.md](data-flows.md#change-impact-map).
 | Error | Response | Severity |
 |---|---|---|
 | Source fetch fails / 429 | `fetch` returns `None`; source contributes `[]`; backfill may cover | low |
+| LinkedIn posting page returns 404 (expired) | job id recorded; every row with that id (guest or SERP copy) dropped before dedup (`_drop_expired_linkedin`) | low |
 | Parser exception | caught, logs to stdout, returns `[]` | low |
 | SearXNG never ready | workflow logs + continues; provider chain falls through to CSE | low |
 | AI stage fails / no `GITHUB_TOKEN` | `continue-on-error`; deterministic output used | low |
