@@ -10,7 +10,8 @@ change checklists live in [data-flows.md](data-flows.md#change-impact-map).
 ### Scenario 1 — Produce the daily digest
 
 **Trigger:** cron `7 4 * * *` or `workflow_dispatch` in
-[dach-exec-job-alerts.yml](../.github/workflows/dach-exec-job-alerts.yml).
+[dach-exec-job-alerts.yml](../.github/workflows/dach-exec-job-alerts.yml). Runs are serialized
+(`concurrency` group): a second trigger waits for the running one instead of overlapping.
 
 **Flow:**
 1. Start local SearXNG container (primary search provider).
