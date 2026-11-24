@@ -12,7 +12,8 @@ Fixture (fixtures/role_classification_11nov.json), one row per line:
   - title / company / application_url / source_name come from the run artifact.
   - body_text is NOT the posting text: it lists the rule terms (IT-signal, generic and
     hardware terms) found in the original posting, so the body rules see the same
-    terms without republishing third-party text. Empty means title-only by design.
+    terms without republishing third-party text. Empty means no body was fetched: the
+    row is decided by its title or industry.
   - seniority / industries were never saved by the PRD evaluation; they are taken
     from the PRD where it states them, otherwise reconstructed — each row's `note`
     says which.
@@ -76,6 +77,26 @@ def test_labelled_set_regression_keeps_correct_rows():
                 f"    note: {row['note']}"
             )
     assert not mismatches, "rows with an unexpected outcome:\n" + "\n".join(mismatches)
+
+
+def test_excluded_rows_also_fail_relaxed_gate():
+    # Production backfills from is_relevant_relaxed when the strict gate yields < 20 rows;
+    # that gate skips the body rules, so it must not re-admit an expected-excluded row.
+    leaked = [f"{r['title']!r} ({r['company']}) [{r['bac']}]" for r in _rows()
+              if r["expected"] != "pass" and rank_jobs.is_relevant_relaxed(r)]
+    assert not leaked, "excluded rows re-admitted by the relaxed gate:\n" + "\n".join(leaked)
+
+
+def test_missing_industry_only_flips_industry_decided_rows():
+    # Fixture industries are partly reconstructed and live pages can lack criteria (#177
+    # fallback). With industries blanked, only the BAC-27 accepted losses may change.
+    flipped = []
+    for row in _rows():
+        blank = {**row, "industries": ""}
+        if rank_jobs.is_relevant(blank) != rank_jobs.is_relevant(row):
+            flipped.append(row)
+    assert flipped, "blanking industries changed nothing: the industry rule is not exercised"
+    assert all(r["bac"] == "BAC-27" for r in flipped), [(r["title"], r["bac"]) for r in flipped]
 
 
 def test_new_rules_still_meet_min_yield(tmp_path, monkeypatch):
