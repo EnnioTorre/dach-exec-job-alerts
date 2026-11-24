@@ -1012,6 +1012,17 @@ class TestLinkedinCriteriaCapture:
         assert jobs[0]["industries"] == ""
         assert jobs[0]["body_text"] == "Own the backend platform."
 
+    def test_pages_without_criteria_are_counted(self, monkeypatch):
+        # Story 10: a fetched page with no parsed criteria is counted, so a markup/label
+        # change shows in the scrape log instead of silently emptying industries.
+        monkeypatch.setattr(scrape_jobs, "_linkedin_criteria_missing", 0)
+        pages = {"111": _guest_body("Cloud.") + _guest_criteria("Director", "Software Development"),
+                 "222": _guest_body("Cloud.")}
+        monkeypatch.setattr(scrape_jobs, "fetch", lambda url, retries=1, **_: pages[url.rsplit("/", 1)[-1]])
+        html = _guest_card("111", "Head of Engineering") + _guest_card("222", "VP Engineering")
+        scrape_jobs.parse_linkedin_guest_api(html, "linkedin_at")
+        assert scrape_jobs._linkedin_criteria_missing == 1
+
     def test_posting_fetch_requests_english_criteria(self, monkeypatch):
         # Production 15-Nov: the scraper-wide de-AT header made LinkedIn return
         # German labels/values, so no row got criteria. The posting fetch must ask

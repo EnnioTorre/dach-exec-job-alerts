@@ -244,6 +244,8 @@ _linkedin_classify_used = 0
 _linkedin_429_streak = 0
 _linkedin_429_retries = 0
 _linkedin_posting_failed = 0
+# Fetched posting pages with no parsed criteria: a jump means the criteria markup/labels changed.
+_linkedin_criteria_missing = 0
 _linkedin_posting_skipped = 0
 
 # Generic job-page language enrichment for German-market boards (Stepstone,
@@ -2155,7 +2157,7 @@ def _fetch_linkedin_job_language(job_id: str, budget: str = "lang") -> str | Non
     _LINKEDIN_CRITERIA_CACHE.setdefault(job_id, {"seniority": "", "industries": ""})
 
     global _linkedin_lang_enrich_used, _linkedin_classify_used
-    global _linkedin_posting_failed, _linkedin_posting_skipped
+    global _linkedin_posting_failed, _linkedin_posting_skipped, _linkedin_criteria_missing
     if _linkedin_429_blocked():
         _linkedin_posting_skipped += 1
         return None
@@ -2186,6 +2188,8 @@ def _fetch_linkedin_job_language(job_id: str, budget: str = "lang") -> str | Non
 
     soup = BeautifulSoup(html, "html.parser")
     _LINKEDIN_CRITERIA_CACHE[job_id] = _parse_linkedin_criteria(soup)
+    if not any(_LINKEDIN_CRITERIA_CACHE[job_id].values()):
+        _linkedin_criteria_missing += 1
     desc_el = soup.find(
         class_=lambda c: c and ("show-more-less-html__markup" in c or "description__text" in c)
     )
@@ -2546,7 +2550,8 @@ def main() -> None:
     print(f"Stats: {stats}")
     print(
         f"LinkedIn posting fetches: {_linkedin_lang_enrich_used + _linkedin_classify_used} attempted, "
-        f"{_linkedin_posting_failed} failed, {_linkedin_posting_skipped} skipped (429 breaker)"
+        f"{_linkedin_posting_failed} failed, {_linkedin_posting_skipped} skipped (429 breaker), "
+        f"{_linkedin_criteria_missing} fetched without job criteria"
     )
 
     if fail_on_fetch_error and failed_fetch_sources:

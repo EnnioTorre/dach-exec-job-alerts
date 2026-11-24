@@ -165,6 +165,17 @@ def _has_linkedin_it_context(job: dict) -> bool:
     return _has_it_industry(job)
 
 
+def _linkedin_confirmation_counts(relevant: list[dict]) -> dict[str, int]:
+    """Strict-pass rows confirmed only by the LinkedIn body: with an IT industry vs body-only
+    (no criteria captured). A body-only surge means the industry rule is effectively off."""
+    counts = {"it_industry": 0, "body_only": 0}
+    for job in relevant:
+        if _has_it_signal(job) or not _has_linkedin_it_context(job):
+            continue
+        counts["body_only" if not (job.get("industries") or "").strip() else "it_industry"] += 1
+    return counts
+
+
 def _hard_reject_common(title: str, url: str, ai_rel: str, ai_url_quality: str) -> bool:
     """
     Reject checks shared by both the strict and relaxed relevance gates.
@@ -425,6 +436,8 @@ def main() -> None:
     # 1b. Enforce source-domain consistency (especially for proxy RSS results).
     relevant = [j for j in relevant if _source_domain_ok(j)]
     print(f"After title filter: {len(relevant)}")
+    linkedin_confirmations = _linkedin_confirmation_counts(relevant)
+    print(f"LinkedIn body confirmations: {linkedin_confirmations}")
 
     # If strict filtering is too tight, add a controlled relaxed fallback so
     # ranking still yields a useful volume (target: up to 20 by default).
@@ -565,6 +578,7 @@ def main() -> None:
         "second_pass_count": data.get("second_pass_count", 0),
         "extra_sources_merged": data.get("second_pass_count", 0) > 0,
         "ranked_funnel": ranked_funnel,
+        "linkedin_confirmations": linkedin_confirmations,
         "jobs": capped,
     }
     out_path = _OUTPUT_PATH

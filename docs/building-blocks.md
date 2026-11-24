@@ -73,6 +73,7 @@ Grouped by pipeline capability. Line numbers are approximate anchors into the so
 | `_hardware_dominated` | rank_jobs.py | Exclude a body naming more hardware than software: H=distinct `hardware_body_terms`, S=distinct strong terms, excluded when `H≥1 and S≤2·H`; skipped for a strong-software or CTO title (Story 4) | `(job) -> bool` |
 | `_has_linkedin_it_context` | rank_jobs.py | Confirm an ambiguous LinkedIn row when its retained `body_text` carries a **strong** IT term and, if LinkedIn `industries` were captured, one is an IT industry (Stories 3/7; no industry → body rule alone) | `(job) -> bool` |
 | `_has_it_industry` | rank_jobs.py | Case-insensitive substring match of `it_industries` in the row's LinkedIn `industries` string | `(job) -> bool` |
+| `_linkedin_confirmation_counts` | rank_jobs.py | Strict-pass rows confirmed by the LinkedIn body, split `it_industry` vs `body_only` (no criteria); logged and written as `linkedin_confirmations` in `jobs_ranked.json`. Pairs with the scrape log's `… fetched without job criteria` count (Story 10) | `(relevant) -> dict[str, int]` |
 | `_seniority_excluded` | rank_jobs.py | Exclude LinkedIn `seniority` in `excluded_seniority` (Entry level / Internship), in both gates | `(job) -> bool` |
 | `_source_domain_ok` | rank_jobs.py | URL must match source platform domain | `(job) -> bool` |
 | `fingerprint` | rank_jobs.py | Dedup key `title\|company` (normalized) | `(job) -> str` |
