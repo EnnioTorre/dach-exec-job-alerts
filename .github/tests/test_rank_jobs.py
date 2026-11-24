@@ -252,7 +252,8 @@ class TestTitleExclusionGate:
         # BAC-16: off-focus Data/AI and IT-security leadership is excluded. Each
         # reaches the gate and would pass without it (management + the "it" signal),
         # so the gate is what excludes them.
-        for title in ("IT Security & Compliance Manager", "Head of Data & AI", "Head of IT Security"):
+        for title in ("IT Security & Compliance Manager", "Head of Data & AI", "Head of IT Security",
+                      "Head of Engineering in Network Security"):
             job = {"title": title, "application_url": "https://acme.com/jobs/123",
                    "company": "Acme Software GmbH"}
             assert rank_jobs.is_relevant(job) is False, title
