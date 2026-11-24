@@ -9,6 +9,7 @@ on:
       - ".github/config/**"
       - "pytest.ini"
       - ".github/workflows/tests.yml"
+      - ".github/workflows/dach-exec-job-alerts.yml"
   pull_request:
     paths:
       - ".github/scripts/**"
@@ -16,6 +17,7 @@ on:
       - ".github/config/**"
       - "pytest.ini"
       - ".github/workflows/tests.yml"
+      - ".github/workflows/dach-exec-job-alerts.yml"
   workflow_dispatch:
 
 jobs:
