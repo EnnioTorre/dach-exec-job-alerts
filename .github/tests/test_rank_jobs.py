@@ -559,6 +559,16 @@ class TestSeniorityIndustryConfirmation:
             row = self._row(title=title, industries="Machinery Manufacturing")
             assert rank_jobs.is_relevant(row) is True, title
 
+    def test_linkedin_confirmation_counts_split_body_only(self):
+        # Story 10: only body-confirmed rows count; title-signal rows are not body confirmations.
+        rows = [
+            self._row(industries="Software Development", body_text=self._STRONG_BODY),
+            self._row(industries="", body_text=self._STRONG_BODY),
+            self._row(industries=None, body_text=self._STRONG_BODY),
+            self._row(title="Head of Software Engineering", industries=""),
+        ]
+        assert rank_jobs._linkedin_confirmation_counts(rows) == {"it_industry": 1, "body_only": 2}
+
 
 # ---------------------------------------------------------------------------
 # Per-source / per-family funnel counts in jobs_ranked.json (Story 8b)
