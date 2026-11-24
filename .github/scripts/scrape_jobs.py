@@ -349,8 +349,8 @@ _RATE_LIMIT_CONFIG = {
     "bing.com": 0.15,  # ~1 request per 6-7 seconds
     # DuckDuckGo: friendly endpoint
     "duckduckgo.com": 0.20,  # ~1 request per 5 seconds
-    # LinkedIn: their guest API is stable
-    "linkedin.com": 0.50,  # ~1 request per 2 seconds
+    # LinkedIn: guest API throttles shared runner IPs (18-23 Nov: 20-27% of posting fetches 429'd at 0.5)
+    "linkedin.com": 0.33,  # ~1 request per 3 seconds
     # Direct job boards
     "stepstone.at": 1.0,  # ~1 request per second
     "stepstone.de": 1.0,
@@ -506,7 +506,7 @@ def fetch(url: str, retries: int = 3, accept_language: str | None = None) -> str
             r = session.get(url, timeout=25, allow_redirects=True, verify=verify_opt)
             # LinkedIn throttles shared runner IPs in bursts: back off once, unless already blocked.
             if (r.status_code == 429 and fam == "linkedin.com" and not _linkedin_429_blocked()
-                    and _linkedin_429_retries < int(os.getenv("SCRAPER_LINKEDIN_429_RETRY_MAX", "10"))):
+                    and _linkedin_429_retries < int(os.getenv("SCRAPER_LINKEDIN_429_RETRY_MAX", "25"))):
                 _linkedin_429_retries += 1
                 wait = min(_parse_retry_after(r) or float(os.getenv("SCRAPER_LINKEDIN_429_BACKOFF", "20")), 60)
                 print(f"  HTTP 429 for {url}; backing off {wait:.0f}s, one retry")

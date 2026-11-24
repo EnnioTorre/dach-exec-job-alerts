@@ -80,7 +80,7 @@ Credentials for local provider runs go in `.env.google-providers` (git-ignored; 
 | `SCRAPER_LINKEDIN_CLASSIFY_MAX` | `SCRAPER_LINKEDIN_LANG_ENRICH_MAX` (else `60`) | Per-run cap on German-titled posting fetches (own counter — does not consume the language budget) |
 | `SCRAPER_LINKEDIN_429_BACKOFF` | `20` | Seconds to wait before the single retry of a LinkedIn 429 (`Retry-After` wins; capped at 60) |
 | `SCRAPER_LINKEDIN_429_BREAKER` | `5` | After this many consecutive LinkedIn 429s (post-retry): no more backoff, remaining posting fetches skipped for the run |
-| `SCRAPER_LINKEDIN_429_RETRY_MAX` | `10` | Per-run cap on LinkedIn 429 backoff retries (bounds added runtime to ~10 × backoff) |
+| `SCRAPER_LINKEDIN_429_RETRY_MAX` | `25` | Per-run cap on LinkedIn 429 backoff retries (bounds added runtime to ~25 × backoff) |
 | `RANK_TARGET_COUNT` | `20` | Target ranked pool size |
 | `RANK_LANGUAGE_ONLY` | — | Optional language gate (`en`/`de`) |
 | `TEST_MIN_RAW` / `TEST_MIN_RANKED` / `TEST_MIN_ACTIVE_SOURCES` / `TEST_ATTEMPTS` | 10 / 10 / 2 / 3 (CI) | Validation-loop thresholds |
