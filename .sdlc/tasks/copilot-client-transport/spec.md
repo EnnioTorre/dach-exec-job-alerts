@@ -5,7 +5,7 @@ created: 2026-11-12
 parent: ../../prds/ai-enrichment-reliability/plan.md
 story: "Story 2"
 deviations:
-  - description: "Implementation, tests and docs total 451 changed lines, exceeding the 200-line target"
+  - description: "Implementation, tests and docs total 453 changed lines, exceeding the 200-line target"
     reason: "Kept the CLI transport, complete error classification, credential-scrubbing paths and all specified tests together as the independently deployable Story 2 slice; the spec explicitly allows a frontmatter deviation when the size target cannot be met without dropping required coverage"
     spec-update-needed: false
 ---

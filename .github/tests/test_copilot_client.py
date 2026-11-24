@@ -93,6 +93,8 @@ def test_copilot_argv_grants_no_tools():
             "--disable-builtin-mcps",
             "--no-custom-instructions",
             "--no-ask-user",
+            "--no-auto-update",
+            "-s",
             "--output-format=json",
         )
     )
