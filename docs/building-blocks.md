@@ -138,6 +138,8 @@ between scrape and rank ([ADR-0003](adrs/ADR-0003-merit-based-ranking-pipeline.m
 
 | Symbol | File:line | Responsibility |
 |---|---|---|
+| `ai_enabled` | [copilot_client.py](../.github/scripts/copilot_client.py):70 | Operator switch `AI_ENRICHMENT`; only on/true/1/yes enable AI; default off |
+| `request_once` | [copilot_client.py](../.github/scripts/copilot_client.py):145 | One no-tools `copilot -p` call; returns answer text or raises a classified `AIError` |
 | `complete_json` | [github_models.py](../.github/scripts/github_models.py):19 | One JSON-mode chat completion via GitHub Models; `None` on missing token/error |
 | `ai_pre_rank_enrich.py` | module | Correct per-job language/location/salary/relevance/url-quality before ranking |
 | `ai_suggest_sources.py` | module | Propose 3–5 new source URLs when results are thin |
