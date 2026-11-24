@@ -2,10 +2,9 @@
 id: spec-copilot-client-transport
 status: complete
 created: 2026-11-12
-parent: ../../prds/ai-enrichment-reliability/plan.md
 story: "Story 2"
 deviations:
-  - description: "Implementation, tests and docs total 453 changed lines, exceeding the 200-line target"
+  - description: "Implementation, tests and docs total 453 added lines (223 client + 228 tests + 2 documentation rows), exceeding the 200-line target"
     reason: "Kept the CLI transport, complete error classification, credential-scrubbing paths and all specified tests together as the independently deployable Story 2 slice; the spec explicitly allows a frontmatter deviation when the size target cannot be met without dropping required coverage"
     spec-update-needed: false
 ---
@@ -14,11 +13,8 @@ deviations:
 
 ## Context
 
-GitHub retired GitHub Models on 2026-07-30. Since then every AI stage fails silently: `github_models.complete_json`
-logs the error and returns `None`, and the workflow hides the failure with `continue-on-error`
-([PRD ai-enrichment-reliability](../../prds/ai-enrichment-reliability/prd.md)). The PRD moves all three AI stages
-onto **GitHub Copilot CLI in programmatic mode** (`copilot -p`), behind **one shared fail-loud client** and an
-**operator switch that is off by default** ([plan](../../prds/ai-enrichment-reliability/plan.md)).
+The project is moving its AI stages onto **GitHub Copilot CLI in programmatic mode** (`copilot -p`), behind
+**one shared fail-loud client** and an **operator switch that is off by default**.
 
 This story builds the **lower half** of that client. It adds the new module `.github/scripts/copilot_client.py`
 with four parts:

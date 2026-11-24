@@ -34,4 +34,4 @@ revision: d8c90aa230db4f720527474ef5a9b68d52b3c5af
 
 The rate-limit and allowance fixtures follow the pinned Copilot CLI 1.0.109 event schema and message strings; neither failure was observed live in Story 1. Replace or augment those fixtures when a real failure is first captured.
 
-The spec records a 451-line implementation/test/docs deviation from the 200-line target. The slice retains all error branches and security-path tests in one independently deployable client change.
+The spec records 453 added lines against the 200-line target: 223 client lines, 228 test lines, and two documentation rows. The slice retains all error branches and security-path tests in one independently deployable client change.
